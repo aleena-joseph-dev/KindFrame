@@ -75,7 +75,7 @@ Neurodivergent individuals (ADHD, ASD, Dyslexia, Anxiety, etc.)
 Adapts to your energy — shift tasks or dive deep. Stay focused on what matters, not everything at once.
 
 ### **🎨 Sensory Safe Mode**
-One-tap override of triggers (sounds/colors/notifications). Customize UI or select low sensory/activate sensory modes.
+Three-tier sensory theme system (Low/Medium/High sensory modes). One-tap override of triggers (sounds/colors/notifications). Customize UI intensity based on current sensory needs. Default: Low Sensory mode for first-time users.
 
 ### **🔍 Ambiguity Destroyer**
 AI task decomposition to micro-steps, hand-holding to start.
@@ -166,6 +166,7 @@ Based on the Miro diagrams provided, here's the comprehensive user flow breakdow
 
 ### **🔄 Adaptive Navigation**
 - Multiple pathways to the same functionality
+- **Universal Home Button** on every screen except home screen (top left)
 - Quick access patterns for energy-dependent states
 - Non-linear flow accommodation
 

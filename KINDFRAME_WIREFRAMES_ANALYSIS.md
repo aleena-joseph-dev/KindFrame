@@ -64,7 +64,7 @@
 ### 2. **Main Dashboard/Home Screen**
 
 #### **Today View (Primary Dashboard)**
-- **Header**: "Hey, Alex" with profile avatar
+- **Header**: "Hey, Alex" with profile avatar and **Theme Toggle Button** (sensory mode selector)
 - **Search Bar**: "Search tasks, notes, features..."
 - **Quick Access Grid (2x3)**:
   - 📅 "View My Day"
@@ -210,12 +210,18 @@
 
 ## 🎨 **Design System Analysis**
 
-### **Color Palette**
-- **Primary**: Blue (#007AFF-like)
-- **Secondary**: Soft grays and pastels
-- **Success**: Green for completed items
-- **Neutral**: Light grays for backgrounds
-- **Accent**: Emoji colors for categories
+### **Color Palette & Sensory Themes**
+- **Default Theme**: Low Sensory (for first-time users)
+- **Three Sensory Modes**:
+  - **Low Sensory**: Muted colors, high contrast, minimal visual stimulation
+  - **Medium Sensory**: Balanced colors, moderate contrast, standard visual elements
+  - **High Sensory**: Vibrant colors, dynamic elements, rich visual feedback
+- **Base Colors**:
+  - **Primary**: Blue (#007AFF-like) - adapted per sensory level
+  - **Secondary**: Soft grays and pastels - intensity varies by mode
+  - **Success**: Green for completed items - saturation varies by mode
+  - **Neutral**: Light grays for backgrounds - contrast varies by mode
+  - **Accent**: Emoji colors for categories - brightness varies by mode
 
 ### **Typography**
 - **Headers**: Bold, clean sans-serif
@@ -269,11 +275,73 @@
 
 ---
 
+## 🎨 **Sensory Theme System**
+
+### **Theme Toggle Implementation**
+- **Location**: Home screen header, next to profile avatar
+- **Icon**: Theme/palette icon (🎨 or similar)
+- **Behavior**: Opens modal/dropdown with three options
+- **Persistence**: User selection saved in preferences
+- **Real-time**: Immediate theme application without restart
+
+### **Sensory Mode Specifications**
+
+#### **Low Sensory Mode (Default)**
+- **Purpose**: Reduce visual overwhelm, maximize accessibility
+- **Color Characteristics**:
+  - Muted, desaturated colors
+  - High contrast for text readability
+  - Minimal gradients or visual effects
+  - Grayscale-leaning palette with subtle color accents
+- **UI Elements**:
+  - Simplified icons
+  - Reduced emoji usage
+  - Clean, minimal borders
+  - Subtle shadows
+- **Target Users**: ASD sensory sensitivities, migraines, focus issues
+
+#### **Medium Sensory Mode**
+- **Purpose**: Balanced visual experience for most users
+- **Color Characteristics**:
+  - Standard app colors as shown in wireframes
+  - Moderate contrast levels
+  - Balanced saturation
+  - Standard emoji and icon usage
+- **UI Elements**:
+  - Full emoji categorization system
+  - Standard shadows and effects
+  - Balanced visual hierarchy
+- **Target Users**: General neurodivergent population, mixed sensitivities
+
+#### **High Sensory Mode**
+- **Purpose**: Rich visual feedback for sensory seekers
+- **Color Characteristics**:
+  - Vibrant, saturated colors
+  - Dynamic color responses
+  - Rich gradients and effects
+  - Full spectrum emoji usage
+- **UI Elements**:
+  - Enhanced visual feedback
+  - Richer animations (when implemented)
+  - Bold visual elements
+  - Dynamic color coding
+- **Target Users**: ADHD hyperfocus states, sensory seekers
+
+### **Implementation Considerations**
+- **CSS Variables**: Use CSS custom properties for theme switching
+- **Component Props**: Pass theme context to all components
+- **Accessibility**: Ensure WCAG compliance across all themes
+- **Performance**: Optimize theme switching for instant feedback
+- **Testing**: Validate readability and usability across all modes
+
+---
+
 ## 📋 **Implementation Requirements**
 
 ### **Navigation Structure**
 - Tab-based or dashboard-style main navigation
-- Consistent back button placement
+- **Universal Home Button**: Every page except home screen has a Home button in top left corner
+- Consistent back button placement (when not home button)
 - Search functionality across app
 - Quick access patterns
 
@@ -294,10 +362,12 @@
 
 ### **Accessibility Features**
 - Large touch targets
-- High contrast options
+- **Sensory theme adaptation** (Low/Medium/High sensory modes)
+- **Universal home navigation** from any screen
 - Voice input integration
 - Clear visual feedback
 - Multiple interaction methods
+- WCAG compliance across all sensory themes
 
 ---
 
