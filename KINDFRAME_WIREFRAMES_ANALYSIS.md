@@ -83,7 +83,7 @@
 ### 3. **Task Management Screens**
 
 #### **Today's Tasks (Simple List View)**
-- **Header**: "Today" with navigation arrows
+- **Header**: "Today" with navigation arrows and **Home Button** (top left)
 - **Task List**:
   - ☐ Study 📚 read
   - ☐ Morning workout 💪 health
@@ -95,7 +95,7 @@
 - **Design Notes**: Color-coded tags, emoji categories, clean checkboxes
 
 #### **Today's Schedule (Timeline View)**
-- **Header**: "Today" with navigation and info icon
+- **Header**: "Today" with navigation, **Home Button** (top left), and info icon
 - **Timeline Format**:
   - **08:00** - Event - High - Morning Workout 📅
   - **09:00** - Event - Medium - Team Stand-up 📅
@@ -110,7 +110,7 @@
   - 👁️ "View Less" (secondary)
 
 #### **Kanban Board**
-- **Header**: "Project Board" with notification and profile icons
+- **Header**: "Project Board" with **Home Button** (top left), notification and profile icons
 - **Columns**: "Backlog" (3 items), "Todo", "In Progress", "Done"
 - **Sample Cards**:
   - "Design user onboarding flow" - Design - High - Due: Jan 15 - Avatar
@@ -123,7 +123,7 @@
 ### 4. **Goal Management**
 
 #### **Add Goal Screen**
-- **Header**: "Add Goal" with back arrow and checkmark
+- **Header**: "Add Goal" with **Home Button** (top left) and checkmark
 - **Form Fields**:
   - Goal Title (text input)
   - Subgoals: "Learn React" ❌, "Build Portfolio" ❌, "+ Add"
@@ -145,7 +145,7 @@
 ### 5. **Mood & Energy Tracking**
 
 #### **Mood Tracker**
-- **Header**: "Mood Tracker" with back arrow and info icon
+- **Header**: "Mood Tracker" with **Home Button** (top left) and info icon
 - **Mind Energy Section**:
   - "How mentally energized do you feel?"
   - Slider: 0 to 10, currently at 5
@@ -163,7 +163,7 @@
 ### 6. **Zone Out Area**
 
 #### **Mindfulness Hub**
-- **Header**: "Zone Out Area" with back arrow and info icon
+- **Header**: "Zone Out Area" with **Home Button** (top left) and info icon
 - **Activity Options (4 large buttons)**:
   - 🎧 "ASMR"
   - 🎵 "Relaxing Music"
@@ -176,7 +176,7 @@
 ### 7. **Calendar & Planning**
 
 #### **Calendar View**
-- **Header**: "July" with dropdown, search, calendar, and filter icons
+- **Header**: "July" with **Home Button** (top left), dropdown, search, calendar, and filter icons
 - **Week View**: Sun-Sat layout
 - **Sample Entries**:
   - July 2: "Things to Do"
@@ -199,12 +199,73 @@
 ### 8. **Brain Dump & Notes**
 
 #### **Brain Dump Screen**
-- **Header**: "Brain dump" with back arrow and info icon
+- **Header**: "Brain dump" with **Home Button** (top left) and info icon
 - **Main Area**: "Write your thoughts here..." (large text area)
 - **Bottom Toolbar**: 
   - 🎤 Voice input
   - ✓ Save/confirm
   - ✏️ Edit/format
+
+---
+
+## 🎨 **Sensory Theme System**
+
+### **Theme Toggle Implementation**
+- **Location**: Home screen header, next to profile avatar
+- **Icon**: Theme/palette icon (🎨 or similar)
+- **Behavior**: Opens modal/dropdown with three options
+- **Persistence**: User selection saved in preferences
+- **Real-time**: Immediate theme application without restart
+
+### **Sensory Mode Specifications**
+
+#### **Low Sensory Mode (Default)**
+- **Purpose**: Reduce visual overwhelm, maximize accessibility
+- **Color Characteristics**:
+  - Muted, desaturated colors
+  - High contrast for text readability
+  - Minimal gradients or visual effects
+  - Grayscale-leaning palette with subtle color accents
+- **UI Elements**:
+  - Simplified icons
+  - Reduced emoji usage
+  - Clean, minimal borders
+  - Subtle shadows
+- **Target Users**: ASD sensory sensitivities, migraines, focus issues
+
+#### **Medium Sensory Mode**
+- **Purpose**: Balanced visual experience for most users
+- **Color Characteristics**:
+  - Standard app colors as shown in wireframes
+  - Moderate contrast levels
+  - Balanced saturation
+  - Standard emoji and icon usage
+- **UI Elements**:
+  - Full emoji categorization system
+  - Standard shadows and effects
+  - Balanced visual hierarchy
+- **Target Users**: General neurodivergent population, mixed sensitivities
+
+#### **High Sensory Mode**
+- **Purpose**: Rich visual feedback for sensory seekers
+- **Color Characteristics**:
+  - Vibrant, saturated colors
+  - Dynamic color responses
+  - Rich gradients and effects
+  - Full spectrum emoji usage
+- **UI Elements**:
+  - Enhanced visual feedback
+  - Richer animations (when implemented)
+  - Bold visual elements
+  - Dynamic color coding
+- **Target Users**: ADHD hyperfocus states, sensory seekers
+
+### **Implementation Considerations**
+- **CSS Variables**: Use CSS custom properties for theme switching
+- **Component Props**: Pass theme context to all components
+- **Accessibility**: Ensure WCAG compliance across all themes
+- **Performance**: Optimize theme switching for instant feedback
+- **Testing**: Validate readability and usability across all modes
 
 ---
 
@@ -272,67 +333,6 @@
 - "Zone Out" areas for overwhelm
 - Gentle progress tracking
 - No shame-based mechanics visible
-
----
-
-## 🎨 **Sensory Theme System**
-
-### **Theme Toggle Implementation**
-- **Location**: Home screen header, next to profile avatar
-- **Icon**: Theme/palette icon (🎨 or similar)
-- **Behavior**: Opens modal/dropdown with three options
-- **Persistence**: User selection saved in preferences
-- **Real-time**: Immediate theme application without restart
-
-### **Sensory Mode Specifications**
-
-#### **Low Sensory Mode (Default)**
-- **Purpose**: Reduce visual overwhelm, maximize accessibility
-- **Color Characteristics**:
-  - Muted, desaturated colors
-  - High contrast for text readability
-  - Minimal gradients or visual effects
-  - Grayscale-leaning palette with subtle color accents
-- **UI Elements**:
-  - Simplified icons
-  - Reduced emoji usage
-  - Clean, minimal borders
-  - Subtle shadows
-- **Target Users**: ASD sensory sensitivities, migraines, focus issues
-
-#### **Medium Sensory Mode**
-- **Purpose**: Balanced visual experience for most users
-- **Color Characteristics**:
-  - Standard app colors as shown in wireframes
-  - Moderate contrast levels
-  - Balanced saturation
-  - Standard emoji and icon usage
-- **UI Elements**:
-  - Full emoji categorization system
-  - Standard shadows and effects
-  - Balanced visual hierarchy
-- **Target Users**: General neurodivergent population, mixed sensitivities
-
-#### **High Sensory Mode**
-- **Purpose**: Rich visual feedback for sensory seekers
-- **Color Characteristics**:
-  - Vibrant, saturated colors
-  - Dynamic color responses
-  - Rich gradients and effects
-  - Full spectrum emoji usage
-- **UI Elements**:
-  - Enhanced visual feedback
-  - Richer animations (when implemented)
-  - Bold visual elements
-  - Dynamic color coding
-- **Target Users**: ADHD hyperfocus states, sensory seekers
-
-### **Implementation Considerations**
-- **CSS Variables**: Use CSS custom properties for theme switching
-- **Component Props**: Pass theme context to all components
-- **Accessibility**: Ensure WCAG compliance across all themes
-- **Performance**: Optimize theme switching for instant feedback
-- **Testing**: Validate readability and usability across all modes
 
 ---
 
