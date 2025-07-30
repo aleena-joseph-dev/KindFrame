@@ -1,11 +1,9 @@
+import { PaginationButton } from '@/components/ui/OptionsButton';
+import { OptionsCard } from '@/components/ui/OptionsCard';
+import { PopupBg } from '@/components/ui/PopupBg';
+import { useViewport } from '@/hooks/useViewport';
 import React from 'react';
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { CloudRainIcon } from '@/components/ui/CloudRainIcon';
-import { HomeIcon } from '@/components/ui/HomeIcon';
-import { LeafIcon } from '@/components/ui/LeafIcon';
-import { ZapIcon } from '@/components/ui/ZapIcon';
+import { StyleSheet, Text, View } from 'react-native';
 
 interface OnboardingPopupProps {
   visible: boolean;
@@ -31,23 +29,25 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
   onSkip,
   onModeSelect 
 }) => {
+  const { vw, vh, getResponsiveSize } = useViewport();
+
   const modeOptions: ModeOption[] = [
     {
-      id: 'calm-low-sensory',
+      id: 'calm',
       title: 'Calm & Low Sensory',
-      subtitle: 'Soft, muted colors for reduced stimulation',
-      icon: <LeafIcon size={24} color="#8b9a8b" />,
-      backgroundColor: '#f0f4f0',
+      subtitle: '',
+      icon: <Text style={{fontSize: 24}}>🌿</Text>,
+      backgroundColor: 'rgba(139, 154, 139, 0.1)',
       borderColor: 'rgba(139, 154, 139, 0.125)',
       iconBackgroundColor: 'rgba(139, 154, 139, 0.125)',
       iconColor: '#8b9a8b',
     },
     {
-      id: 'hyper-focus-boost',
-      title: 'Hyper Focus Boost',
-      subtitle: 'High contrast for enhanced concentration',
-      icon: <ZapIcon size={24} color="#dc2626" />,
-      backgroundColor: '#fef2f2',
+      id: 'highEnergy',
+      title: 'High Energy',
+      subtitle: '',
+      icon: <Text style={{fontSize: 24}}>⚖️</Text>,
+      backgroundColor: 'rgba(220, 38, 38, 0.1)',
       borderColor: 'rgba(220, 38, 38, 0.125)',
       iconBackgroundColor: 'rgba(220, 38, 38, 0.125)',
       iconColor: '#dc2626',
@@ -55,19 +55,19 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
     {
       id: 'normal',
       title: 'Normal',
-      subtitle: 'Balanced colors for everyday use',
-      icon: <HomeIcon size={24} color="#3b82f6" />,
-      backgroundColor: '#eff6ff',
+      subtitle: '',
+      icon: <Text style={{fontSize: 24}}>🎨</Text>,
+      backgroundColor: 'rgba(59, 130, 246, 0.1)',
       borderColor: 'rgba(59, 130, 246, 0.125)',
       iconBackgroundColor: 'rgba(59, 130, 246, 0.125)',
       iconColor: '#3b82f6',
     },
     {
-      id: 'dont-want-to-human',
-      title: "I Don't Want To Human Today",
-      subtitle: 'Gentle, comforting tones for difficult days',
-      icon: <CloudRainIcon size={24} color="#6b21a8" />,
-      backgroundColor: '#faf5ff',
+      id: 'relax',
+      title: 'Relax & Restore',
+      subtitle: '',
+      icon: <Text style={{fontSize: 24}}>🔄</Text>,
+      backgroundColor: 'rgba(107, 33, 168, 0.1)',
       borderColor: 'rgba(107, 33, 168, 0.125)',
       iconBackgroundColor: 'rgba(107, 33, 168, 0.125)',
       iconColor: '#6b21a8',
@@ -75,20 +75,12 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
   ];
 
   const handleModeSelect = (modeId: string) => {
-    if (onModeSelect) {
-      onModeSelect(modeId);
-    } else {
-      console.log('Selected mode:', modeId);
-      onClose();
-    }
+    console.log('Selected mode:', modeId);
+    onModeSelect?.(modeId);
   };
 
   const handleSkip = () => {
-    if (onSkip) {
-      onSkip();
-    } else {
-      onClose();
-    }
+    onSkip?.();
   };
 
   // Create 2x2 grid layout
@@ -104,60 +96,59 @@ export const OnboardingPopup: React.FC<OnboardingPopupProps> = ({
   const gridRows = createGridRows();
 
   return (
-    <Modal
+    <PopupBg
       visible={visible}
-      transparent
-      animationType="fade"
       onRequestClose={onClose}
+      size="large"
+      color="#fff"
+      showSkip={true}
+      closeOnOutsideTap={true}
+      onSkip={handleSkip}
     >
-      <View style={styles.overlay}>
-        <SafeAreaView style={styles.container}>
-          <View style={styles.content}>
-            <Text style={styles.title}>Choose Your Mode</Text>
-            <Text style={styles.subtitle}>Select the experience that works best for you</Text>
-            
-            <View style={styles.gridContainer}>
-              {gridRows.map((row, rowIndex) => (
-                <View key={rowIndex} style={styles.gridRow}>
-                  {row.map((mode) => (
-                    <TouchableOpacity
-                      key={mode.id}
-                      style={[
-                        styles.modeCard,
-                        {
-                          backgroundColor: mode.backgroundColor,
-                          borderColor: mode.borderColor,
-                        }
-                      ]}
-                      onPress={() => handleModeSelect(mode.id)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={[
-                        styles.iconContainer,
-                        { backgroundColor: mode.iconBackgroundColor }
-                      ]}>
-                        {mode.icon}
-                      </View>
-                      <Text style={styles.modeTitle}>{mode.title}</Text>
-                      <Text style={styles.modeSubtitle}>{mode.subtitle}</Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
+      {/* Main Content Container - Child of PopupBg */}
+      <View style={[styles.content, { width: '100%' }]}>
+        {/* Title Section - Child of Content */}
+        <View style={styles.titleSection}>
+          <Text style={[styles.title, { fontSize: getResponsiveSize(20, 24, 28) }]}>
+            Choose Your Mode
+          </Text>
+          <Text style={[styles.subtitle, { fontSize: getResponsiveSize(14, 16, 18) }]}>
+            Select the experience that works best for you
+          </Text>
+        </View>
+
+        {/* Grid Section - Child of Content */}
+        <View style={styles.gridSection}>
+          {gridRows.map((row, rowIndex) => (
+            <View key={rowIndex} style={styles.gridRow}>
+              {row.map((mode) => (
+                <OptionsCard
+                  key={mode.id}
+                  icon={mode.icon}
+                  title={mode.title}
+                  subtitle={mode.subtitle}
+                  color={mode.backgroundColor}
+                  borderColor={mode.borderColor}
+                  iconBgColor={mode.iconBackgroundColor}
+                  size="small"
+                  style={{ width: '45%', marginHorizontal: '2.5%', marginVertical: 4 }}
+                  onPress={() => handleModeSelect(mode.id)}
+                />
               ))}
             </View>
+          ))}
+        </View>
 
-            {/* Skip Button */}
-            <TouchableOpacity
-              style={styles.skipButton}
-              onPress={handleSkip}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.skipButtonText}>Skip</Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
+        {/* Pagination Section - Child of Content */}
+        <View style={styles.paginationSection}>
+          <PaginationButton 
+            onPress={() => {/* TODO: handle options */}} 
+            size="big" 
+            style={{ alignSelf: 'center', marginTop: 16 }} 
+          />
+        </View>
       </View>
-    </Modal>
+    </PopupBg>
   );
 };
 
@@ -184,29 +175,37 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   content: {
-    padding: 24,
+    padding: 12,
+  },
+  titleSection: {
+    alignItems: 'center',
+    marginBottom: 12,
   },
   title: {
-    fontSize: 24,
     fontWeight: 'bold',
     textAlign: 'center',
     marginBottom: 8,
     color: '#1f2937',
+    width: '100%',
   },
   subtitle: {
-    fontSize: 16,
     textAlign: 'center',
-    marginBottom: 24,
+    marginBottom: 8,
     color: '#6b7280',
     lineHeight: 22,
+    width: '100%',
   },
-  gridContainer: {
-    gap: 12,
-    marginBottom: 24,
+  gridSection: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 0,
+    marginBottom: 0,
   },
   gridRow: {
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 0,
   },
   modeCard: {
     flex: 1,
@@ -256,5 +255,10 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#6b7280',
     fontWeight: '500',
+  },
+  paginationSection: {
+    width: '100%',
+    alignItems: 'center',
+    marginTop: 4,
   },
 }); 

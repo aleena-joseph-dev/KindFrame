@@ -1,11 +1,11 @@
 import { SensoryColors } from '@/constants/Colors';
 import {
-    ActivityIndicator,
-    StyleSheet,
-    Text,
-    TextStyle,
-    TouchableOpacity,
-    ViewStyle,
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TextStyle,
+  TouchableOpacity,
+  ViewStyle,
 } from 'react-native';
 
 interface ButtonProps {
@@ -17,7 +17,7 @@ interface ButtonProps {
   loading?: boolean;
   style?: ViewStyle;
   textStyle?: TextStyle;
-  sensoryTheme?: 'low' | 'medium' | 'high';
+  sensoryTheme?:'calm' | 'highEnergy' | 'normal' | 'relax';
 }
 
 export function Button({
@@ -29,7 +29,7 @@ export function Button({
   loading = false,
   style,
   textStyle,
-  sensoryTheme = 'low',
+  sensoryTheme = 'calm',
 }: ButtonProps) {
   const colors = SensoryColors[sensoryTheme];
 

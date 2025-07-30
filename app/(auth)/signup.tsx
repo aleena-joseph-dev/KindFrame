@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AppleIcon from '@/components/icons/AppleIcon';
@@ -15,7 +15,7 @@ export default function SignUpScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const colors = SensoryColors.low;
+  const colors = SensoryColors['calm'];
 
   useEffect(() => {
     // Check if user is already signed in
@@ -125,18 +125,24 @@ export default function SignUpScreen() {
   };
 
   const handleSignIn = () => {
-    router.push('/signin');
+    // router.push('/signin');
   };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={styles.content}>
+        {/* Logo */}
+        <View style={{ alignItems: 'center', marginBottom: 4 }}>
+          <Image
+            source={require('../../assets/images/kind_frame_logo.png')}
+            style={{ width: 80, height: 80, resizeMode: 'contain', marginBottom: 0 }}
+            accessibilityLabel="KindFrame logo"
+          />
+        </View>
         {/* Header */}
         <View style={styles.header}>
           <Text style={[styles.appName, { color: colors.text }]}>KindFrame</Text>
-          <Text style={[styles.tagline, { color: colors.textSecondary }]}>
-            Structure that respects your brain and your bandwidth.
-          </Text>
+          <Text style={[styles.tagline, { color: colors.textSecondary }]}>Structure that respects your brain and your bandwidth.</Text>
         </View>
 
         {/* Greeting */}

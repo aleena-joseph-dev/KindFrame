@@ -4,8 +4,18 @@ import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
+import { PreviousScreenProvider } from '@/components/ui/PreviousScreenContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
+import { SensoryModeProvider } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+
+// export default function Layout() {
+//   return (
+//     <ClerkProvider>
+//       <Slot />
+//     </ClerkProvider>
+//   )
+// }
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -20,21 +30,24 @@ export default function RootLayout() {
 
   return (
     <OnboardingProvider>
-      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-        <Stack
-          screenOptions={{
-            contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
-          }}
-        >
-          <Stack.Screen name="index" options={{ headerShown: false }} />
-          <Stack.Screen name="signin" options={{ headerShown: false }} />
-          <Stack.Screen name="signup" options={{ headerShown: false }} />
-          <Stack.Screen name="email-signup" options={{ headerShown: false }} />
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="+not-found" />
-        </Stack>
-        <StatusBar style="auto" />
-      </ThemeProvider>
+      <SensoryModeProvider>
+        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+          <PreviousScreenProvider>
+            <Stack
+              screenOptions={{
+                contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
+              }}
+            >
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="menu" options={{ headerShown: false }} />
+              <Stack.Screen name="+not-found" />
+            </Stack>
+            <StatusBar style="auto" />
+          </PreviousScreenProvider>
+        </ThemeProvider>
+      </SensoryModeProvider>
     </OnboardingProvider>
   );
 }

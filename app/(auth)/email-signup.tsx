@@ -5,16 +5,16 @@ import { SensoryColors } from '@/constants/Colors';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-    Alert,
-    Dimensions,
-    KeyboardAvoidingView,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Dimensions,
+  KeyboardAvoidingView,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -28,7 +28,7 @@ export default function EmailSignUpScreen() {
     password: '',
     confirmPassword: '',
   });
-  const sensoryTheme: 'low' | 'medium' | 'high' = 'low';
+  const sensoryTheme: 'calm' | 'highEnergy' | 'normal' | 'relax' = 'calm';
 
   const colors = SensoryColors[sensoryTheme];
 

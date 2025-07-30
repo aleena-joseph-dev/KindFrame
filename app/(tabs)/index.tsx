@@ -1,25 +1,31 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EnergyPopup } from '@/components/onboarding/EnergyPopup';
 import { NicknamePopup } from '@/components/onboarding/NicknamePopup';
 import { OnboardingPopup } from '@/components/onboarding/OnboardingPopup';
-import { BrainIcon } from '@/components/ui/BrainIcon';
+import AnimatedJotBoxIcon from '@/components/ui/AnimatedJotBoxIcon';
 import { CalendarIcon } from '@/components/ui/CalendarIcon';
 import { CheckIcon } from '@/components/ui/CheckIcon';
+import { ChevronIcon } from '@/components/ui/ChevronDownIcon';
 import { ClockIcon } from '@/components/ui/ClockIcon';
 import { HeadphonesIcon } from '@/components/ui/HeadphonesIcon';
 import { KanbanIcon } from '@/components/ui/KanbanIcon';
+import MenuIcon from '@/components/ui/MenuIcon';
 import { NotesIcon } from '@/components/ui/NotesIcon';
+import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import ProfileIcon from '@/components/ui/ProfileIcon';
 import { SearchIcon } from '@/components/ui/SearchIcon';
+import SettingsIcon from '@/components/ui/SettingsIcon';
 import { SmileIcon } from '@/components/ui/SmileIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import { ThemeDropdown } from '@/components/ui/ThemeDropdown';
-import { ToggleSwitch } from '@/components/ui/ToggleSwitch';
 import { SensoryColors } from '@/constants/Colors';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 interface FeatureItem {
@@ -38,20 +44,50 @@ interface OnboardingData {
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
+  const { addToStack, removeFromStack, getPreviousScreen, resetStack } = usePreviousScreen();
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     nickname: 'Alex',
     mode: 'normal',
     energyLevel: 5,
   });
-  
+
+  // Loading state for splash
+  const [loading, setLoading] = useState(true);
+
   // Onboarding flow state
   const [showNicknamePopup, setShowNicknamePopup] = useState(false);
-  const [showModePopup, setShowModePopup] = useState(false);
   const [showEnergyPopup, setShowEnergyPopup] = useState(false);
+  const [showModePopup, setShowModePopup] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
-  
-  const [sensoryMode, setSensoryMode] = useState<'low' | 'medium' | 'high'>('low');
+
+  const { mode, setMode } = useSensoryMode();
   const [searchQuery, setSearchQuery] = useState('');
+
+  // Add these hooks here, before any conditional returns
+  const [showFullSchedule, setShowFullSchedule] = useState(false);
+  const [isJotBoxAnimating, setIsJotBoxAnimating] = useState(false);
+  const [isJotBoxCompleted, setIsJotBoxCompleted] = useState(false);
+  const [isSimpleAnimating, setIsSimpleAnimating] = useState(false);
+  const [isMenuAnimating, setIsMenuAnimating] = useState(false);
+
+  // Track if component is mounted
+  const isMounted = useRef(true);
+  
+  // Track animation objects for direct cancellation
+  const jotBoxAnimationRef = useRef<any>(null);
+  const simpleAnimationRef = useRef<any>(null);
+  const menuAnimationRef = useRef<any>(null);
+  
+  // Track if animations have been completed in this session
+  const [hasCompletedAnimations, setHasCompletedAnimations] = useState(false);
+  
+  // Track if this is the first time loading the app
+  const isFirstLoad = useRef(true);
+
+  // Reset navigation stack when home screen mounts
+  useEffect(() => {
+    resetStack();
+  }, [resetStack]);
 
   const [features, setFeatures] = useState<FeatureItem[]>([
     {
@@ -92,9 +128,142 @@ export default function HomeScreen() {
     },
   ]);
 
+  // Trigger animations on first load
   useEffect(() => {
-    checkOnboardingStatus();
+    // Only reset animation states on first load of the app
+    if (isFirstLoad.current) {
+      setIsJotBoxAnimating(false);
+      setIsSimpleAnimating(false);
+      setIsMenuAnimating(false);
+      setIsJotBoxCompleted(false);
+      setHasCompletedAnimations(false);
+      isFirstLoad.current = false;
+    } else {
+      // On subsequent loads (navigation), preserve the completion state
+      if (hasCompletedAnimations) {
+        setIsJotBoxCompleted(true);
+        setIsJotBoxAnimating(false);
+      }
+    }
+
+    // Set loading to false and check onboarding status (always run this)
+    setTimeout(() => {
+      if (isMounted.current) {
+        setLoading(false);
+        checkOnboardingStatus();
+      }
+    }, 1200);
+
+    // Only start animations if they haven't been completed yet
+    if (!hasCompletedAnimations) {
+      const timer = setTimeout(() => {
+        if (isMounted.current) {
+          setIsJotBoxAnimating(true);
+          setTimeout(() => {
+            if (isMounted.current) {
+              setIsJotBoxAnimating(false);
+              setIsJotBoxCompleted(true);
+              setHasCompletedAnimations(true); // Mark as completed
+            }
+          }, 8500);
+        }
+      }, 500);
+
+      const simpleTimer = setTimeout(() => {
+        if (isMounted.current) {
+          setIsSimpleAnimating(true);
+          setTimeout(() => {
+            if (isMounted.current) {
+              setIsSimpleAnimating(false);
+            }
+          }, 2000);
+        }
+      }, 1000);
+
+      const menuTimer = setTimeout(() => {
+        if (isMounted.current) {
+          setIsMenuAnimating(true);
+          setTimeout(() => {
+            if (isMounted.current) {
+              setIsMenuAnimating(false);
+            }
+          }, 6000);
+        }
+      }, 1500);
+
+      return () => {
+        // Mark component as unmounted
+        isMounted.current = false;
+        // Immediately clear all timeouts
+        clearTimeout(timer);
+        clearTimeout(simpleTimer);
+        clearTimeout(menuTimer);
+        // Immediately stop all animations
+        setIsJotBoxAnimating(false);
+        setIsSimpleAnimating(false);
+        setIsMenuAnimating(false);
+        // Don't reset completion states - preserve them
+      };
+    }
+  }, []); // Remove hasCompletedAnimations from dependency array
+
+  // Handle completion state changes
+  useEffect(() => {
+    if (hasCompletedAnimations && !isFirstLoad.current) {
+      setIsJotBoxCompleted(true);
+      setIsJotBoxAnimating(false);
+    }
+  }, [hasCompletedAnimations]);
+
+  // Stop animations when component unmounts
+  useEffect(() => {
+    return () => {
+      // Mark component as unmounted
+      isMounted.current = false;
+      // Cleanup function that runs when component unmounts
+      setIsJotBoxAnimating(false);
+      setIsSimpleAnimating(false);
+      setIsMenuAnimating(false);
+      // Set to completed state when unmounting
+      setIsJotBoxCompleted(true);
+      setHasCompletedAnimations(true);
+      // Cancel any running animations directly
+      if (jotBoxAnimationRef.current) {
+        jotBoxAnimationRef.current.stop?.();
+      }
+      if (simpleAnimationRef.current) {
+        simpleAnimationRef.current.stop?.();
+      }
+      if (menuAnimationRef.current) {
+        menuAnimationRef.current.stop?.();
+      }
+    };
   }, []);
+
+  // Stop animations when screen loses focus
+  useFocusEffect(
+    React.useCallback(() => {
+      return () => {
+        // Stop all animations when screen loses focus
+        setIsJotBoxAnimating(false);
+        setIsSimpleAnimating(false);
+        setIsMenuAnimating(false);
+        // Set to completed state when losing focus
+        setIsJotBoxCompleted(true);
+        setHasCompletedAnimations(true);
+        // Cancel any running animations directly
+        if (jotBoxAnimationRef.current) {
+          jotBoxAnimationRef.current.stop?.();
+        }
+        if (simpleAnimationRef.current) {
+          simpleAnimationRef.current.stop?.();
+        }
+        if (menuAnimationRef.current) {
+          menuAnimationRef.current.stop?.();
+        }
+      };
+    }, [])
+  );
 
   const checkOnboardingStatus = async () => {
     try {
@@ -110,34 +279,37 @@ export default function HomeScreen() {
     }
   };
 
+  // --- Onboarding popup flow (swapped order) ---
   const handleNicknameNext = (nickname: string) => {
     setOnboardingData(prev => ({ ...prev, nickname }));
     setShowNicknamePopup(false);
-    setShowModePopup(true);
+    setShowEnergyPopup(true);
   };
 
   const handleNicknameSkip = () => {
     setShowNicknamePopup(false);
+    setShowEnergyPopup(true);
+  };
+
+  const handleEnergyNext = (energyLevel: number) => {
+    setOnboardingData(prev => ({ ...prev, energyLevel }));
+    setShowEnergyPopup(false);
+    setShowModePopup(true);
+  };
+
+  const handleEnergySkip = () => {
+    setShowEnergyPopup(false);
     setShowModePopup(true);
   };
 
   const handleModeSelect = (modeId: string) => {
     setOnboardingData(prev => ({ ...prev, mode: modeId }));
     setShowModePopup(false);
-    setShowEnergyPopup(true);
+    completeOnboarding();
   };
 
   const handleModeSkip = () => {
     setShowModePopup(false);
-    setShowEnergyPopup(true);
-  };
-
-  const handleEnergyNext = (energyLevel: number) => {
-    setOnboardingData(prev => ({ ...prev, energyLevel }));
-    completeOnboarding();
-  };
-
-  const handleEnergySkip = () => {
     completeOnboarding();
   };
 
@@ -153,11 +325,25 @@ export default function HomeScreen() {
   };
 
   const handleFeaturePress = (feature: string) => {
-    Alert.alert('Feature Coming Soon', `${feature} will be available in the next update!`);
+    if (feature === 'To-Do List') {
+      router.push('/(tabs)/todo');
+    } else if (feature === 'Kanban Board') {
+      router.push('/(tabs)/kanban');
+    } else if (feature === 'Pomodoro Timer') {
+      router.push('/(tabs)/pomodoro');
+    } else if (feature === 'View My Day') {
+      router.push('/(tabs)/calendar');
+    } else if (feature === 'Add Goals') {
+      router.push('/(tabs)/goals');
+    } else if (feature === 'Zone Out') {
+      router.push('/(tabs)/zone-out');
+    } else {
+      Alert.alert('Feature Coming Soon', `${feature} will be available in the next update!`);
+    }
   };
 
-  const handleThemeChange = (theme: 'low' | 'medium' | 'high') => {
-    setSensoryMode(theme);
+  const handleThemeChange = (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => {
+    setMode(theme);
   };
 
   const handleSearch = (query: string) => {
@@ -187,7 +373,7 @@ export default function HomeScreen() {
       ]);
       
       // Navigate to signin page
-      router.replace('/signin');
+      // router.replace('/signin');
     } catch (error) {
       console.error('Error during logout:', error);
       Alert.alert('Error', 'Failed to logout. Please try again.');
@@ -195,7 +381,7 @@ export default function HomeScreen() {
   };
 
   const visibleFeatures = features.filter(feature => feature.isVisible);
-  const colors = SensoryColors[sensoryMode];
+  const colors = SensoryColors[mode];
 
   // Update icon colors based on current theme
   const getFeatureIcon = (feature: FeatureItem) => {
@@ -230,35 +416,53 @@ export default function HomeScreen() {
 
   const gridRows = createGridRows();
 
+  // --- RENDER ---
+  if (loading) {
+    return (
+      <SafeAreaView style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+        <Image
+          source={require('../../assets/images/kind_frame_logo.png')}
+          style={{ width: 96, height: 96, marginBottom: 24 }}
+          resizeMode="contain"
+          accessibilityLabel="KindFrame logo"
+        />
+        <Text style={{ fontSize: 22, fontWeight: '600', color: '#222' }}>Loading...</Text>
+      </SafeAreaView>
+    );
+  }
+
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      {/* Top Bar */}
-      <View style={[styles.topBar, { backgroundColor: colors.topBarBackground }]}>
-        <View style={styles.topBarContent}>
-          <Text style={[styles.logo, { color: colors.text }]}>KindFrame</Text>
-          <View style={styles.topBarRight}>
-            <ThemeDropdown 
-              currentTheme={sensoryMode}
-              onThemeChange={handleThemeChange}
-              colors={colors}
-            />
-            <TouchableOpacity 
-              style={[styles.profileButton, { backgroundColor: colors.profileBackground }]}
-              onPress={handleProfilePress}
-            >
-              <Text style={[styles.profileCharacter, { color: colors.profilePhoto }]}>👤</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>  
+      {/* Top HUD */}
+      <View style={[styles.topHud, { backgroundColor: colors.topBarBackground }]}>  
+        <Image
+          source={require('../../assets/images/kind_frame_logo.png')}
+          style={{ width: 36, height: 36, marginRight: 8 }}
+          resizeMode="contain"
+          accessibilityLabel="KindFrame logo"
+        />
+        <View style={{ flex: 1 }} />
+        <ThemeDropdown 
+          currentTheme={mode}
+          onThemeChange={setMode}
+          colors={colors}
+        />
+        <TouchableOpacity 
+          style={[styles.settingsButton, { backgroundColor: colors.profileBackground }]}
+          onPress={handleProfilePress}
+          accessibilityLabel="Settings"
+        >
+          <SettingsIcon size={24} color={colors.profilePhoto} />
+        </TouchableOpacity>
       </View>
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
-        <View style={[styles.searchBar, { backgroundColor: colors.surface }]}>
+        <View style={[styles.searchBar, { backgroundColor: colors.surface }]}>  
           <SearchIcon size={20} color={colors.textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: colors.text }]}
-            placeholder="Search tasks, notes, features..."
+            placeholder="Search tasks, notes, and more..."
             placeholderTextColor={colors.textSecondary}
             value={searchQuery}
             onChangeText={handleSearch}
@@ -266,77 +470,100 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      {/* Main Content */}
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        {/* Welcome Section */}
-        <View style={styles.welcomeSection}>
+      {/* Today's Focus Card */}
+      <View style={[styles.focusCard, { backgroundColor: colors.surface }]}>  
+        <View style={styles.focusHeader}>
+          <Text style={[styles.focusTitle, { color: colors.text }]}>Today's Focus</Text>
+          <TouchableOpacity 
+            onPress={() => setShowFullSchedule(v => !v)}
+            style={styles.chevronButton}
+          >
+            <ChevronIcon size={20} color={colors.textSecondary} isExpanded={showFullSchedule} />
+          </TouchableOpacity>
         </View>
-
-        {/* Feature Grid */}
-        <View style={styles.featureGridContainer}>
-          <View style={styles.featureGrid}>
-            {gridRows.map((row, rowIndex) => (
-              <View key={rowIndex} style={styles.featureRow}>
-                {row.map((feature) => (
-                  <View key={feature.id} style={[styles.featureCard, { backgroundColor: colors.cardBackground }]}>
-                    {/* Toggle Switch - Top Right Corner */}
-                    <View style={styles.cardToggleContainer}>
-                      <ToggleSwitch 
-                        isOn={feature.isVisible}
-                        onToggle={() => handleFeatureToggle(feature.id)}
-                        size="small"
-                        color={colors.buttonBackground}
-                      />
-                    </View>
-                    
-                    {/* Feature Content */}
-                    <TouchableOpacity 
-                      style={styles.featureContent}
-                      onPress={() => handleFeaturePress(feature.title)}
-                    >
-                      {getFeatureIcon(feature)}
-                      <Text style={[styles.featureTitle, { color: colors.text }]}>
-                        {feature.title}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ))}
-                {/* Add empty space to maintain grid structure if odd number of items */}
-                {row.length === 1 && <View style={styles.emptyCard} />}
-              </View>
-            ))}
+        
+        {/* Current Task Section */}
+        <View style={[styles.taskSection, { backgroundColor: '#f8fafc' }]}>
+          <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Current Task</Text>
+          <View style={styles.taskRow}>
+            <Text style={[styles.taskTextActive, { color: '#3b82f6' }]}>Morning meditation</Text>
+            <View style={[styles.taskIndicator, { backgroundColor: '#3b82f6' }]} />
           </View>
         </View>
-      </ScrollView>
-
-      {/* Bottom Footer */}
-      <View style={[styles.bottomFooter, { backgroundColor: colors.cardBackground }]}>
-        <TouchableOpacity 
-          style={styles.footerItem}
-          onPress={() => handleFeaturePress('Mood Tracker')}
-        >
-          <SmileIcon size={24} color={colors.icon} />
-          <Text style={[styles.footerText, { color: colors.text }]}>Mood</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.footerItem}
-          onPress={() => handleFeaturePress('Zone Out')}
-        >
-          <HeadphonesIcon size={24} color={colors.icon} />
-          <Text style={[styles.footerText, { color: colors.text }]}>Zone Out</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.footerItem}
-          onPress={() => handleFeaturePress('Brain Dump')}
-        >
-          <BrainIcon size={24} color={colors.icon} />
-          <Text style={[styles.footerText, { color: colors.text }]}>Brain Dump</Text>
-        </TouchableOpacity>
+        
+        {/* Next Task Section */}
+        <View style={[styles.taskSection, { backgroundColor: '#fefefe' }]}>
+          <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Next Task</Text>
+          <View style={styles.taskRow}>
+            <Text style={[styles.taskTextInactive, { color: colors.textSecondary }]}>Review project goals</Text>
+            <View style={[styles.taskIndicator, { backgroundColor: '#d1d5db' }]} />
+          </View>
+        </View>
+        
+        {showFullSchedule && (
+          <View style={styles.scheduleList}>
+            {/* Example schedule, replace with real data */}
+            <View style={styles.scheduleRow}>
+              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>7:00 AM</Text>
+              <Text style={[styles.scheduleTask, { color: colors.text }]}>Morning meditation</Text>
+            </View>
+            <View style={styles.scheduleRow}>
+              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>8:00 AM</Text>
+              <Text style={[styles.scheduleTask, { color: colors.text }]}>Review project goals</Text>
+            </View>
+            <View style={styles.scheduleRow}>
+              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>9:00 AM</Text>
+              <Text style={[styles.scheduleTask, { color: colors.text }]}>Team sync</Text>
+            </View>
+          </View>
+        )}
       </View>
 
-      {/* Onboarding Popups */}
+      {/* Spacer */}
+      <View style={{ flex: 1 }} />
+
+      {/* Floating Menu Button (bottom-left) */}
+      <TouchableOpacity 
+        style={styles.floatingMenuButton} 
+        onPress={() => {
+          addToStack('home');
+          router.push('/menu');
+        }}
+      >
+        <MenuIcon size={40} color={colors.icon} isAnimating={isMenuAnimating} />
+      </TouchableOpacity>
+
+      {/* Floating JotBox Button (bottom-right) */}
+      <TouchableOpacity
+        style={styles.floatingJotBoxButton}
+        onPress={() => {
+          setIsJotBoxAnimating(true);
+          setTimeout(() => setIsJotBoxAnimating(false), 8500);
+          router.push('/(tabs)/quick-jot');
+        }}
+      >
+        <AnimatedJotBoxIcon size={40} isAnimating={isJotBoxAnimating} isCompleted={isJotBoxCompleted} color={colors.icon} />
+      </TouchableOpacity>
+
+      {/* Bottom Navigation */}
+      <View style={[styles.bottomNav, { backgroundColor: colors.cardBackground }]}>  
+        {/* Center icons only */}
+        <View style={styles.centerIcons}>
+          <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Zone Out')}>
+            <HeadphonesIcon size={28} color={colors.icon} />
+            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Zone Out</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.centerIconBtn} onPress={() => router.push('/(tabs)/mood-tracker')}>
+            <SmileIcon size={28} color={colors.icon} />
+            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Mood Tracker</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Profile')}>
+            <ProfileIcon size={28} color={colors.icon} />
+            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+      {/* Onboarding Popups (unchanged) */}
       <NicknamePopup
         visible={showNicknamePopup}
         onClose={() => setShowNicknamePopup(false)}
@@ -344,20 +571,18 @@ export default function HomeScreen() {
         onSkip={handleNicknameSkip}
         defaultNickname={onboardingData.nickname}
       />
-
-      <OnboardingPopup
-        visible={showModePopup}
-        onClose={() => setShowModePopup(false)}
-        onSkip={handleModeSkip}
-        onModeSelect={handleModeSelect}
-      />
-
       <EnergyPopup
         visible={showEnergyPopup}
         onClose={() => setShowEnergyPopup(false)}
         onNext={handleEnergyNext}
         onSkip={handleEnergySkip}
         defaultEnergyLevel={onboardingData.energyLevel}
+      />
+      <OnboardingPopup
+        visible={showModePopup}
+        onClose={() => setShowModePopup(false)}
+        onSkip={handleModeSkip}
+        onModeSelect={handleModeSelect}
       />
     </SafeAreaView>
   );
@@ -394,9 +619,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  profileCharacter: {
-    fontSize: 20,
-  },
   searchContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
@@ -409,13 +631,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
+    boxShadow: '0 1px 2px rgba(0, 0, 0, 0.05)',
     elevation: 1,
   },
   searchInput: {
@@ -435,24 +651,18 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   featureGrid: {
-    gap: 16,
+    // gap: 16, // Removed
   },
   featureRow: {
-    flexDirection: 'row',
-    gap: 16,
+    // flexDirection: 'row', // Removed
+    // gap: 16, // Removed
   },
   featureCard: {
     flex: 1,
     aspectRatio: 1,
     borderRadius: 16,
     padding: 20,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
+    boxShadow: '0 2px 3.84px rgba(0, 0, 0, 0.1)',
     elevation: 5,
     position: 'relative',
   },
@@ -497,11 +707,160 @@ const styles = StyleSheet.create({
   },
   footerItem: {
     alignItems: 'center',
-    gap: 4,
+    // gap: 4, // Removed
     flex: 1,
   },
   footerText: {
     fontSize: 12,
     fontWeight: '500',
+  },
+  topHud: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  settingsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10, // Added padding
+  },
+  focusCard: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 16,
+    padding: 20,
+    backgroundColor: '#ffffff',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  focusHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 15,
+  },
+  focusTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  expandIcon: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  taskSection: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  taskLabel: {
+    fontSize: 13,
+    fontWeight: '500',
+    marginBottom: 6,
+  },
+  taskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  taskTextActive: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  taskTextInactive: {
+    fontSize: 15,
+    fontWeight: '400',
+  },
+  taskIndicator: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  scheduleList: {
+    marginTop: 15,
+    paddingTop: 15,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
+  },
+  scheduleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  scheduleTime: {
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  scheduleTask: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  bottomNav: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 20,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    boxShadow: '0 -2px 3.84px rgba(0, 0, 0, 0.1)',
+    elevation: 5,
+  },
+  centerIcons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    width: '100%',
+  },
+  centerIconBtn: {
+    padding: 4,
+    alignItems: 'center',
+  },
+  bottomNavText: {
+    marginTop: 4,
+    fontSize: 12,
+    textAlign: 'center',
+  },
+  floatingMenuButton: {
+    position: 'absolute',
+    bottom: 100, // Adjust as needed
+    left: 20,
+    backgroundColor: 'white',
+    borderRadius: 25,
+    padding: 15,
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+    elevation: 5,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  floatingJotBoxButton: {
+    position: 'absolute',
+    bottom: 100, // Adjust as needed
+    right: 20,
+    backgroundColor: 'white',
+    borderRadius: 25,
+    padding: 15,
+    boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
+    elevation: 5,
+    zIndex: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  chevronButton: {
+    padding: 5, // Added padding to make touch target larger
   },
 });

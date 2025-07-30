@@ -8,59 +8,89 @@ const tintColorDark = '#fff';
 
 // KindFrame Sensory Theme Colors - Matching reference design exactly
 export const SensoryColors = {
-  low: {
-    background: '#e8e8e3', // Light beige background from reference
-    topBarBackground: '#d4d4c9', // Darker gradient for top bar
-    headerBackground: '#e8e8e3', // Same as background
-    surface: '#ffffff', // Pure white surface
-    cardBackground: '#ffffff', // White card background
-    text: '#1f2937', // Dark gray text
-    textSecondary: '#6b7280', // Medium gray for secondary text
-    subtitle: '#6b7280', // Medium gray for subtitle
-    border: '#e5e7eb', // Light gray border
-    button: '#8b9a8b', // Olive green button from reference
-    buttonBackground: '#8b9a8b', // Button background
-    buttonText: '#ffffff', // Button text color
-    link: '#8b9a8b', // Olive green for links
-    icon: '#6b7260', // Icon color from reference
-    profileBackground: '#f3f4f6', // Profile button background
-    profilePhoto: '#9ca3af', // Profile photo placeholder
+  calm: {
+    background: '#F7F6F2', // Off-White Cream
+    topBarBackground: '#DDE6D5', // Soft Sage
+    headerBackground: '#DDE6D5',
+    surface: '#FFFFFF', // White for surfaces
+    cardBackground: '#FFFFFF',
+    text: '#5E5E5E', // Charcoal Grey
+    textSecondary: '#B2C8D7', // Quiet Blue (for secondary text)
+    subtitle: '#B2C8D7',
+    border: '#E5E7EB',
+    button: '#D8D3E7', // Pale Lavender
+    buttonBackground: '#D8D3E7',
+    buttonText: '#5E5E5E',
+    link: '#B2C8D7',
+    icon: '#B2C8D7',
+    profileBackground: '#F7F6F2',
+    profilePhoto: '#5E5E5E',
+    primary: '#DDE6D5',
+    secondary: '#B2C8D7',
+    accent: '#D8D3E7',
   },
-  medium: {
-    background: '#e8e8e3', // Light beige background from reference
-    topBarBackground: '#d4d4c9', // Darker gradient for top bar
-    headerBackground: '#e8e8e3', // Same as background
-    surface: '#ffffff', // Pure white surface
-    cardBackground: '#ffffff', // White card background
-    text: '#1f2937', // Dark gray text
-    textSecondary: '#6b7280', // Medium gray for secondary text
-    subtitle: '#6b7280', // Medium gray for subtitle
-    border: '#e5e7eb', // Light gray border
-    button: '#8b9a8b', // Olive green button from reference
-    buttonBackground: '#8b9a8b', // Button background
-    buttonText: '#ffffff', // Button text color
-    link: '#8b9a8b', // Olive green for links
-    icon: '#6b7260', // Icon color from reference
-    profileBackground: '#f3f4f6', // Profile button background
-    profilePhoto: '#9ca3af', // Profile photo placeholder
+  highEnergy: {
+    background: '#FFFFFF', // Clean White
+    topBarBackground: '#FF6B6B', // Energizing Coral
+    headerBackground: '#FF6B6B',
+    surface: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    text: '#2A3D45', // Deep Navy
+    textSecondary: '#0ABAB5', // Bright Teal
+    subtitle: '#FFD465', // Sunny Yellow
+    border: '#E5E7EB',
+    button: '#0ABAB5',
+    buttonBackground: '#FFD465',
+    buttonText: '#2A3D45',
+    link: '#0ABAB5',
+    icon: '#0ABAB5',
+    profileBackground: '#FFFFFF',
+    profilePhoto: '#2A3D45',
+    primary: '#FF6B6B',
+    secondary: '#0ABAB5',
+    accent: '#FFD465',
   },
-  high: {
-    background: '#e8e8e3', // Light beige background from reference
-    topBarBackground: '#d4d4c9', // Darker gradient for top bar
-    headerBackground: '#e8e8e3', // Same as background
-    surface: '#ffffff', // Pure white surface
-    cardBackground: '#ffffff', // White card background
-    text: '#1f2937', // Dark gray text
-    textSecondary: '#6b7280', // Medium gray for secondary text
-    subtitle: '#6b7280', // Medium gray for subtitle
-    border: '#e5e7eb', // Light gray border
-    button: '#8b9a8b', // Olive green button from reference
-    buttonBackground: '#8b9a8b', // Button background
-    buttonText: '#ffffff', // Button text color
-    link: '#8b9a8b', // Olive green for links
-    icon: '#6b7260', // Icon color from reference
-    profileBackground: '#f3f4f6', // Profile button background
-    profilePhoto: '#9ca3af', // Profile photo placeholder
+  normal: {
+    background: '#F2F4F8', // Gentle Grey
+    topBarBackground: '#6195ED', // Balanced Blue
+    headerBackground: '#6195ED',
+    surface: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    text: '#474F59', // Slate
+    textSecondary: '#A0C49D', // Muted Green
+    subtitle: '#FFC3A0', // Warm Peach
+    border: '#E5E7EB',
+    button: '#A0C49D',
+    buttonBackground: '#FFC3A0',
+    buttonText: '#474F59',
+    link: '#6195ED',
+    icon: '#6195ED',
+    profileBackground: '#F2F4F8',
+    profilePhoto: '#474F59',
+    primary: '#6195ED',
+    secondary: '#A0C49D',
+    accent: '#FFC3A0',
+  },
+  relax: {
+    background: '#F9F6F2', // Dim Ivory
+    topBarBackground: '#C2B9E5', // Soft Lavender
+    headerBackground: '#C2B9E5',
+    surface: '#FFFFFF',
+    cardBackground: '#FFFFFF',
+    text: '#6B5B4E', // Muted Brown
+    textSecondary: '#D3A8A8', // Dusky Rose
+    subtitle: '#B2D8B9', // Calming Mint
+    border: '#E5E7EB',
+    button: '#B2D8B9',
+    buttonBackground: '#D3A8A8',
+    buttonText: '#6B5B4E',
+    link: '#C2B9E5',
+    icon: '#C2B9E5',
+    profileBackground: '#F9F6F2',
+    profilePhoto: '#6B5B4E',
+    primary: '#C2B9E5',
+    secondary: '#D3A8A8',
+    accent: '#B2D8B9',
   },
 };
 

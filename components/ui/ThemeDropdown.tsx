@@ -3,8 +3,8 @@ import { Modal, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Svg, { Path } from 'react-native-svg';
 
 interface ThemeDropdownProps {
-  currentTheme: 'low' | 'medium' | 'high';
-  onThemeChange: (theme: 'low' | 'medium' | 'high') => void;
+  currentTheme: 'calm' | 'highEnergy' | 'normal' | 'relax';
+  onThemeChange: (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => void;
   colors: any;
 }
 
@@ -16,9 +16,10 @@ export const ThemeDropdown: React.FC<ThemeDropdownProps> = ({
   const [isOpen, setIsOpen] = useState(false);
 
   const themes = [
-    { key: 'low', label: 'Low Sensory' },
-    { key: 'medium', label: 'Medium Sensory' },
-    { key: 'high', label: 'High Sensory' },
+    { key: 'calm', label: 'Calm & Low Sensory' },
+    { key: 'highEnergy', label: 'High Energy' },
+    { key: 'normal', label: 'Normal' },
+    { key: 'relax', label: 'Relax & Restore' },
   ] as const;
 
   const currentThemeData = themes.find(t => t.key === currentTheme);
@@ -116,7 +117,6 @@ const styles = StyleSheet.create({
   button: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -132,6 +132,7 @@ const styles = StyleSheet.create({
   buttonText: {
     fontSize: 14,
     fontWeight: '500',
+    marginLeft: 8,
   },
   chevron: {
     marginLeft: 4,
@@ -160,7 +161,6 @@ const styles = StyleSheet.create({
   option: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 6,
@@ -174,5 +174,6 @@ const styles = StyleSheet.create({
   optionText: {
     fontSize: 14,
     fontWeight: '500',
+    marginLeft: 8,
   },
 }); 
