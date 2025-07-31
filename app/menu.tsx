@@ -1,3 +1,4 @@
+import { AuthService } from '@/services/authService';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -56,8 +57,20 @@ export default function MenuScreen() {
       router.push('/(tabs)/todo');
     } else if (feature === 'Zone Out') {
       router.push('/(tabs)/zone-out');
+    } else if (feature === 'Profile') {
+      handleLogout();
     } else {
       Alert.alert('Feature Coming Soon', `${feature} will be available in the next update!`);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await AuthService.signOut();
+      router.replace('/(auth)/signin');
+    } catch (error) {
+      console.error('Logout error:', error);
+      Alert.alert('Logout Error', 'Failed to sign out. Please try again.');
     }
   };
 

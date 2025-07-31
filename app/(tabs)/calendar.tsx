@@ -220,7 +220,7 @@ export default function CalendarScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Calendar" onBack={() => handleBack()} />
+      <TopBar title="Calendar" onBack={() => handleBack()} showSettings={true} />
 
       {/* Month Navigation */}
       <View style={styles.monthContainer}>

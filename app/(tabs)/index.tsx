@@ -27,6 +27,7 @@ import { ThemeDropdown } from '@/components/ui/ThemeDropdown';
 import { SensoryColors } from '@/constants/Colors';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { AuthService } from '@/services/authService';
 
 interface FeatureItem {
   id: string;
@@ -363,21 +364,26 @@ export default function HomeScreen() {
   };
 
   const handleProfilePress = async () => {
-    try {
-      // Clear all user data
-      await AsyncStorage.multiRemove([
-        'userToken',
-        'userData',
-        'hasCompletedOnboarding',
-        'onboardingData'
-      ]);
-      
-      // Navigate to signin page
-      // router.replace('/signin');
-    } catch (error) {
-      console.error('Error during logout:', error);
-      Alert.alert('Error', 'Failed to logout. Please try again.');
-    }
+    Alert.alert(
+      'Logout',
+      'Are you sure you want to logout?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Logout',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await AuthService.signOut();
+              router.replace('/(auth)/signin');
+            } catch (error) {
+              console.error('Error during logout:', error);
+              Alert.alert('Error', 'Failed to logout. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const visibleFeatures = features.filter(feature => feature.isVisible);

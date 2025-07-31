@@ -186,7 +186,7 @@ export default function NotesScreen() {
         console.log('Notes back button pressed');
         console.log('Current navigation stack:', navigationStack);
         handleBack('menu');
-      }} />
+      }} showSettings={true} />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>

@@ -260,7 +260,7 @@ export default function GoalsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Goals" onBack={() => handleBack()} />
+      <TopBar title="Goals" onBack={() => handleBack()} showSettings={true} />
 
       {/* Add Goal Button */}
       <View style={styles.addButtonContainer}>

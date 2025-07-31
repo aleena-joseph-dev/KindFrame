@@ -9,13 +9,7 @@ import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { SensoryModeProvider } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
-// export default function Layout() {
-//   return (
-//     <ClerkProvider>
-//       <Slot />
-//     </ClerkProvider>
-//   )
-// }
+
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();

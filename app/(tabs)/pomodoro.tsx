@@ -236,7 +236,7 @@ export default function PomodoroScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Pomodoro Timer" onBack={() => handleBack()} />
+      <TopBar title="Pomodoro Timer" onBack={() => handleBack()} showSettings={true} />
 
       {/* Timer Display */}
       <View style={styles.timerContainer}>

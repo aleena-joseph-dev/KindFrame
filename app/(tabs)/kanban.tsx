@@ -145,7 +145,7 @@ export default function KanbanScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Kanban Board" onBack={() => handleBack()} />
+      <TopBar title="Kanban Board" onBack={() => handleBack()} showSettings={true} />
 
       {/* Add Task Button */}
       <View style={styles.addButtonContainer}>

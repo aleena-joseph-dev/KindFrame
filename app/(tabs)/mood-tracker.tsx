@@ -134,7 +134,7 @@ export default function MoodTrackerScreen() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <TopBar title="Mood Tracker" onBack={() => handleBack()} onInfo={handleInfo} />
+      <TopBar title="Mood Tracker" onBack={() => handleBack()} onInfo={handleInfo} showSettings={true} />
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         <View style={{ padding: 24 }}>
           <Text style={{ fontSize: 24, fontWeight: 'bold', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Mood Tracker</Text>

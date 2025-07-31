@@ -37,3 +37,7 @@ yarn-error.*
 *.tsbuildinfo
 
 app-example
+
+# MCP Configuration (contains sensitive tokens)
+mcp-config.json
+.env

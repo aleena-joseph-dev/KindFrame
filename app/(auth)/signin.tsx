@@ -1,17 +1,19 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import AppleIcon from '@/components/icons/AppleIcon';
 import { SensoryColors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { AuthService } from '@/services/authService';
 
 export default function SignInScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  // const [isAppleLoading, setIsAppleLoading] = useState(false); // Commented out
+  const [isNotionLoading, setIsNotionLoading] = useState(false); // Added
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const colors = SensoryColors['calm'];
@@ -23,8 +25,8 @@ export default function SignInScreen() {
 
   const checkSignInStatus = async () => {
     try {
-      const userToken = await AsyncStorage.getItem('userToken');
-      if (userToken) {
+      const isAuthenticated = await AuthService.isAuthenticated();
+      if (isAuthenticated) {
         // User is already signed in, go to home
         router.replace('/(tabs)');
       }
@@ -34,91 +36,128 @@ export default function SignInScreen() {
   };
 
   const handleGoogleSignIn = async () => {
-    setIsLoading(true);
+    setIsGoogleLoading(true);
     try {
-      // Mock Google OAuth for development
-      const mockUserData = {
-        id: 'mock-user-id',
-        email: 'user@example.com',
-        name: 'Test User',
-        picture: null,
-      };
-
-      // Store user data
-      await AsyncStorage.setItem('userToken', 'mock-token');
-      await AsyncStorage.setItem('userData', JSON.stringify(mockUserData));
-
-      // Navigate to home screen (onboarding will be handled there)
-      router.replace('/(tabs)');
+      const result = await AuthService.signInWithGoogle();
+      
+      if (result.success) {
+        // OAuth flow will be handled by deep linking
+        Alert.alert(
+          'Google Sign In', 
+          'Redirecting to Google... Please complete the sign-in process.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Sign-in Error', 
+          result.error?.message || 'Failed to sign in with Google. Please try again.'
+        );
+      }
     } catch (error) {
-      console.error('Sign-in error:', error);
-      Alert.alert('Sign-in Error', 'Failed to sign in. Please try again.');
+      console.error('Google sign-in error:', error);
+      Alert.alert(
+        'Sign-in Error', 
+        'Failed to sign in with Google. Please try again.'
+      );
     } finally {
-      setIsLoading(false);
+      setIsGoogleLoading(false);
     }
   };
 
-  const handleAppleSignIn = async () => {
-    setIsLoading(true);
+  // Comment out Apple Sign-In handler
+  // const handleAppleSignIn = async () => {
+  //   setIsAppleLoading(true);
+  //   try {
+  //     const result = await AuthService.signInWithApple();
+  //     if (result.success) {
+  //       Alert.alert('Apple Sign In', 'Redirecting to Apple... Please complete the sign-in process.', [{ text: 'OK' }]);
+  //     } else {
+  //       Alert.alert('Sign-in Error', result.error?.message || 'Failed to sign in with Apple. Please try again.');
+  //     }
+  //   } catch (error) {
+  //     console.error('Apple sign-in error:', error);
+  //     Alert.alert('Sign-in Error', 'Failed to sign in with Apple. Please try again.');
+  //   } finally {
+  //     setIsAppleLoading(false);
+  //   }
+  // };
+
+  const handleNotionSignIn = async () => {
+    setIsNotionLoading(true);
     try {
-      // Mock Apple Sign In for development
-      const mockUserData = {
-        id: 'mock-apple-user-id',
-        email: 'user@icloud.com',
-        name: 'Apple User',
-        picture: null,
-      };
-
-      // Store user data
-      await AsyncStorage.setItem('userToken', 'mock-apple-token');
-      await AsyncStorage.setItem('userData', JSON.stringify(mockUserData));
-
-      // Navigate to home screen
-      router.replace('/(tabs)');
+      const result = await AuthService.signInWithNotion();
+      if (result.success) {
+        Alert.alert('Notion Sign In', 'Redirecting to Notion... Please complete the sign-in process.', [{ text: 'OK' }]);
+      } else {
+        Alert.alert('Sign-in Error', result.error?.message || 'Failed to sign in with Notion. Please try again.');
+      }
     } catch (error) {
-      console.error('Apple sign-in error:', error);
-      Alert.alert('Sign-in Error', 'Failed to sign in with Apple. Please try again.');
+      console.error('Notion sign-in error:', error);
+      Alert.alert('Sign-in Error', 'Failed to sign in with Notion. Please try again.');
     } finally {
-      setIsLoading(false);
+      setIsNotionLoading(false);
     }
+  };
+
+  // Add email validation function
+  const isValidEmail = (email: string): boolean => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
   };
 
   const handleEmailSignIn = async () => {
-    if (!email.trim() || !password.trim()) {
+    const trimmedEmail = email.trim();
+    const trimmedPassword = password.trim();
+
+    if (!trimmedEmail || !trimmedPassword) {
       Alert.alert('Error', 'Please enter both email and password.');
+      return;
+    }
+
+    // Validate email format
+    if (!isValidEmail(trimmedEmail)) {
+      Alert.alert('Error', 'Please enter a valid email address.');
       return;
     }
 
     setIsLoading(true);
     try {
-      // Mock email sign-in for development
-      const mockUserData = {
-        id: 'mock-email-user-id',
-        email: email.trim(),
-        name: 'Email User',
-        picture: null,
-      };
-
-      // Store user data
-      await AsyncStorage.setItem('userToken', 'mock-email-token');
-      await AsyncStorage.setItem('userData', JSON.stringify(mockUserData));
-
-      // Navigate to home screen
-      router.replace('/(tabs)');
+      const result = await AuthService.signIn(trimmedEmail, trimmedPassword);
+      if (result.success) {
+        router.replace('/(tabs)');
+      } else {
+        Alert.alert('Sign-in Error', result.error?.message || 'Invalid email or password. Please try again.');
+      }
     } catch (error) {
       console.error('Email sign-in error:', error);
-      Alert.alert('Sign-in Error', 'Invalid email or password. Please try again.');
+      Alert.alert('Sign-in Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleSignUp = () => {
-    // router.push('/signup');
+    router.push('/(auth)/signup');
   };
 
-  const handleResetPassword = () => {
-    Alert.alert('Reset Password', 'Password reset functionality will be implemented soon.');
+  const handleResetPassword = async () => {
+    if (!email.trim()) {
+      Alert.alert('Error', 'Please enter your email address first.');
+      return;
+    }
+
+    try {
+      const result = await AuthService.resetPassword(email.trim());
+      
+      if (result.success) {
+        Alert.alert('Reset Password', 'Password reset email sent. Please check your inbox.');
+      } else {
+        Alert.alert('Reset Password Error', result.error?.message || 'Failed to send reset email. Please try again.');
+      }
+    } catch (error) {
+      console.error('Reset password error:', error);
+      Alert.alert('Reset Password Error', 'An unexpected error occurred. Please try again.');
+    }
   };
 
   return (
@@ -151,26 +190,51 @@ export default function SignInScreen() {
         {/* Social Login Buttons */}
         <View style={styles.socialButtons}>
           <TouchableOpacity
-            style={[styles.socialButton, { backgroundColor: colors.buttonBackground }]}
+            style={[
+              styles.socialButton, 
+              { backgroundColor: colors.buttonBackground },
+              isNotionLoading && styles.socialButtonDisabled
+            ]}
+            onPress={handleNotionSignIn}
+            disabled={isNotionLoading || isGoogleLoading || isLoading}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.socialButtonIcon, { color: colors.buttonText }]}>N</Text>
+            <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
+              {isNotionLoading ? 'Signing in...' : 'Continue with Notion'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Comment out Apple Sign-In button */}
+          {/* <TouchableOpacity
+            style={[
+              styles.socialButton, 
+              { backgroundColor: colors.buttonBackground },
+              isAppleLoading && styles.socialButtonDisabled
+            ]}
             onPress={handleAppleSignIn}
-            disabled={isLoading}
+            disabled={isAppleLoading || isGoogleLoading || isLoading}
             activeOpacity={0.8}
           >
             <AppleIcon size={18} color={colors.buttonText} />
             <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
-              Continue with Apple
+              {isAppleLoading ? 'Signing in...' : 'Continue with Apple'}
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           <TouchableOpacity
-            style={[styles.socialButton, { backgroundColor: colors.buttonBackground }]}
+            style={[
+              styles.socialButton, 
+              { backgroundColor: colors.buttonBackground },
+              isGoogleLoading && styles.socialButtonDisabled
+            ]}
             onPress={handleGoogleSignIn}
-            disabled={isLoading}
+            disabled={isGoogleLoading || isNotionLoading || isLoading}
             activeOpacity={0.8}
           >
             <Text style={[styles.socialButtonIcon, { color: colors.buttonText }]}>G</Text>
             <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
-              Continue with Google
+              {isGoogleLoading ? 'Signing in...' : 'Continue with Google'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -222,9 +286,13 @@ export default function SignInScreen() {
 
           {/* Log In Button */}
           <TouchableOpacity
-            style={[styles.loginButton, { backgroundColor: colors.buttonBackground }]}
+            style={[
+              styles.loginButton, 
+              { backgroundColor: colors.buttonBackground },
+              isLoading && styles.socialButtonDisabled
+            ]}
             onPress={handleEmailSignIn}
-            disabled={isLoading}
+            disabled={isLoading || isGoogleLoading || isNotionLoading}
             activeOpacity={0.8}
           >
             <Text style={[styles.loginButtonText, { color: colors.buttonText }]}>
@@ -309,6 +377,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+  },
+  socialButtonDisabled: {
+    opacity: 0.6,
   },
   socialButtonIcon: {
     fontSize: 18,

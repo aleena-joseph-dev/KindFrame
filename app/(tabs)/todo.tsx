@@ -339,7 +339,7 @@ export default function TodoScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 
-      <TopBar title="To-Do List" onBack={() => handleBack()} onInfo={() => {/* TODO: Show info modal */}} />
+      <TopBar title="To-Do List" onBack={() => handleBack()} onInfo={() => {/* TODO: Show info modal */}} showSettings={true} />
       {/* Top Buttons */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, gap: 12 }}>
         <TouchableOpacity
