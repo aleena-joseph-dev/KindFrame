@@ -45,6 +45,14 @@
       {
         "asset": "./assets/fonts/SpaceMono-Regular.ttf"
       }
-    ]
+    ],
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "your-project-id"
+      }
+    }
   }
 }

@@ -1,0 +1,9 @@
+# Supabase Configuration
+EXPO_PUBLIC_SUPABASE_URL=https://dlenuyofztbvhzmdfiek.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsZW51eW9menRidmh6bWRmaWVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NjY2NDMsImV4cCI6MjA2OTQ0MjY0M30.vyeTP56KuHKJlpcH-n8L8qFKxQrrvVSSi30S0P2Gv5A
+
+# Notion OAuth Configuration
+# TODO: Replace with your actual Notion credentials
+# Get these from: https://developers.notion.com/
+EXPO_PUBLIC_NOTION_CLIENT_ID=your_notion_client_id_here
+EXPO_PUBLIC_NOTION_CLIENT_SECRET=your_notion_client_secret_here 

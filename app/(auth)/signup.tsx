@@ -13,7 +13,7 @@ export default function SignUpScreen() {
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   // const [isAppleLoading, setIsAppleLoading] = useState(false); // Commented out
-  const [isNotionLoading, setIsNotionLoading] = useState(false); // Added
+  // const [isNotionLoading, setIsNotionLoading] = useState(false); // Commented out - keeping functionality for future use
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
@@ -84,22 +84,27 @@ export default function SignUpScreen() {
   //   }
   // };
 
-  const handleNotionSignUp = async () => {
-    setIsNotionLoading(true);
-    try {
-      const result = await AuthService.signInWithNotion();
-      if (result.success) {
-        Alert.alert('Notion Sign Up', 'Redirecting to Notion... Please complete the sign-up process.', [{ text: 'OK' }]);
-      } else {
-        Alert.alert('Sign-up Error', result.error?.message || 'Failed to sign up with Notion. Please try again.');
-      }
-    } catch (error) {
-      console.error('Notion sign-up error:', error);
-      Alert.alert('Sign-up Error', 'Failed to sign up with Notion. Please try again.');
-    } finally {
-      setIsNotionLoading(false);
-    }
-  };
+  // Comment out Notion Sign-Up handler - keeping functionality for future use
+  // const handleNotionSignUp = async () => {
+  //   setIsNotionLoading(true);
+  //   try {
+  //     console.log('Starting Notion signup...');
+  //     const result = await AuthService.signInWithNotionCustom();
+  //     
+  //     if (result.success) {
+  //       console.log('Notion OAuth initiated successfully');
+  //       // The redirect will happen automatically
+  //     } else {
+  //       console.error('Notion signup failed:', result.error);
+  //       Alert.alert('Notion Sign-up Error', result.error?.message || 'Failed to sign up with Notion. Please try again.');
+  //     }
+  //   } catch (error) {
+  //     console.error('Notion signup error:', error);
+  //     Alert.alert('Notion Sign-up Error', 'An unexpected error occurred. Please try again.');
+  //   } finally {
+  //     setIsNotionLoading(false);
+  //   }
+  // };
 
   // Add email validation function
   const isValidEmail = (email: string): boolean => {
@@ -259,7 +264,8 @@ export default function SignUpScreen() {
 
         {/* Social Sign-up Buttons */}
         <View style={styles.socialButtons}>
-          <TouchableOpacity
+          {/* Comment out Notion Sign-Up button - keeping functionality for future use */}
+          {/* <TouchableOpacity
             style={[
               styles.socialButton, 
               { backgroundColor: colors.buttonBackground },
@@ -273,7 +279,7 @@ export default function SignUpScreen() {
             <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
               {isNotionLoading ? 'Signing up...' : 'Continue with Notion'}
             </Text>
-          </TouchableOpacity>
+          </TouchableOpacity> */}
 
           {/* Comment out Apple Sign-Up button */}
           {/* <TouchableOpacity
@@ -299,7 +305,7 @@ export default function SignUpScreen() {
               isGoogleLoading && styles.socialButtonDisabled
             ]}
             onPress={handleGoogleSignUp}
-            disabled={isGoogleLoading || isNotionLoading || isLoading}
+            disabled={isGoogleLoading || isLoading}
             activeOpacity={0.8}
           >
             <Text style={[styles.socialButtonIcon, { color: colors.buttonText }]}>G</Text>
@@ -404,7 +410,7 @@ export default function SignUpScreen() {
               isLoading && styles.socialButtonDisabled
             ]}
             onPress={handleEmailSignUp}
-            disabled={isLoading || isGoogleLoading || isNotionLoading}
+            disabled={isLoading || isGoogleLoading}
             activeOpacity={0.8}
           >
             <Text style={[styles.signupButtonText, { color: colors.buttonText }]}>

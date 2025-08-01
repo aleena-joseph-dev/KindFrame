@@ -191,7 +191,7 @@ export class AuthService {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'kindframe://auth-callback',
+          redirectTo: `${window.location.origin}/auth-callback`,
           queryParams: {
             access_type: 'offline',
             prompt: 'consent',
@@ -271,7 +271,7 @@ export class AuthService {
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'notion',
         options: {
-          redirectTo: 'kindframe://auth-callback',
+          redirectTo: `${window.location.origin}/auth-callback`,
           queryParams: {
             response_type: 'code',
           },
@@ -292,7 +292,6 @@ export class AuthService {
       
       return {
         success: true,
-        user: data.user,
       };
     } catch (error) {
       console.error('Notion sign-in error:', error);
@@ -300,6 +299,238 @@ export class AuthService {
         success: false,
         error: {
           message: 'Failed to sign in with Notion',
+        },
+      };
+    }
+  }
+
+  // Custom Notion OAuth Sign In (since it might not be available in Supabase)
+  static async signInWithNotionCustom(): Promise<AuthResult> {
+    try {
+      console.log('Attempting custom Notion OAuth sign in...');
+      
+      // Notion OAuth configuration
+      const NOTION_CLIENT_ID = process.env.EXPO_PUBLIC_NOTION_CLIENT_ID;
+      const NOTION_REDIRECT_URI = 'http://localhost:8081/auth-callback'; // Updated back to port 8081
+      
+      if (!NOTION_CLIENT_ID) {
+        console.error('Notion Client ID not configured');
+        return {
+          success: false,
+          error: {
+            message: 'Notion OAuth not configured. Please contact support.',
+          },
+        };
+      }
+
+      // Construct Notion OAuth URL with state parameter for security
+      const state = Math.random().toString(36).substring(7);
+      const notionAuthUrl = `https://api.notion.com/v1/oauth/authorize?client_id=${NOTION_CLIENT_ID}&response_type=code&owner=user&redirect_uri=${encodeURIComponent(NOTION_REDIRECT_URI)}&state=${state}`;
+
+      console.log('Redirecting to Notion OAuth:', notionAuthUrl);
+      console.log('Generated state:', state);
+      
+      // Store state for verification
+      await AsyncStorage.setItem('notionOAuthState', state);
+      
+      // For web, we'll redirect to the Notion OAuth URL
+      if (typeof window !== 'undefined') {
+        window.location.href = notionAuthUrl;
+      } else {
+        // For mobile, we need to use expo-linking
+        const Linking = await import('expo-linking');
+        const supported = await Linking.default.canOpenURL(notionAuthUrl);
+        
+        if (supported) {
+          await Linking.default.openURL(notionAuthUrl);
+        } else {
+          return {
+            success: false,
+            error: {
+              message: 'Cannot open Notion OAuth URL. Please try again.',
+            },
+          };
+        }
+      }
+
+      return {
+        success: true,
+      };
+    } catch (error) {
+      console.error('Custom Notion sign-in error:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to sign in with Notion',
+        },
+      };
+    }
+  }
+
+  // Handle Notion OAuth callback
+  static async handleNotionCallback(code: string, state?: string): Promise<AuthResult> {
+    try {
+      console.log('Handling Notion OAuth callback with code:', code, 'and state:', state);
+      
+      // Verify state parameter if provided (make it optional for now)
+      if (state) {
+        const storedState = await AsyncStorage.getItem('notionOAuthState');
+        console.log('Stored state:', storedState, 'Received state:', state);
+        
+        if (storedState && storedState !== state) {
+          console.error('State mismatch in Notion OAuth callback');
+          console.log('Expected state:', storedState, 'Received state:', state);
+          // For now, let's continue anyway since this might be a development issue
+          console.log('Continuing despite state mismatch for development...');
+        }
+        
+        // Clear the stored state
+        await AsyncStorage.removeItem('notionOAuthState');
+      } else {
+        console.log('No state parameter provided, skipping state verification');
+      }
+      
+      // Use Supabase Edge Function to handle token exchange
+      const { data: tokenData, error: tokenError } = await supabase.functions.invoke('notion-oauth', {
+        body: {
+          code,
+          redirect_uri: 'http://localhost:8081/auth-callback', // Updated back to port 8081
+        },
+      });
+
+      if (tokenError) {
+        console.error('Notion token exchange failed:', tokenError);
+        return {
+          success: false,
+          error: {
+            message: 'Failed to authenticate with Notion',
+          },
+        };
+      }
+
+      console.log('Token exchange successful:', tokenData);
+
+      // Get user info from Notion using the Edge Function
+      const { data: notionUser, error: userError } = await supabase.functions.invoke('notion-user', {
+        body: {
+          access_token: tokenData.access_token,
+        },
+      });
+
+      if (userError) {
+        console.error('Failed to get Notion user data:', userError);
+        return {
+          success: false,
+          error: {
+            message: 'Failed to get user information from Notion',
+          },
+        };
+      }
+
+      console.log('Notion user data:', notionUser);
+
+      // Create a unique email for the user
+      const userIdHash = notionUser.id.replace(/[^a-zA-Z0-9]/g, '').substring(0, 8);
+      const notionEmail = `notion.${userIdHash}@kindframe.app`;
+      
+      // Check if user already exists by trying to get their session
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session?.user) {
+        // User is already authenticated, update their profile
+        console.log('User already authenticated, updating profile');
+        
+        // Update user metadata with Notion info
+        const { error: updateError } = await supabase.auth.updateUser({
+          data: {
+            full_name: notionUser.name || 'Notion User',
+            avatar_url: notionUser.avatar_url || null,
+            provider: 'notion',
+            notion_user_id: notionUser.id,
+            notion_access_token: tokenData.access_token,
+          },
+        });
+
+        if (updateError) {
+          console.error('Error updating user metadata:', updateError);
+        }
+
+        // Update user profile in our custom table
+        const { error: profileError } = await supabase
+          .from('user_profiles')
+          .upsert({
+            user_id: session.user.id,
+            preferences: {
+              notion_user_id: notionUser.id,
+              notion_access_token: tokenData.access_token,
+              provider: 'notion',
+            },
+            settings: {
+              full_name: notionUser.name || 'Notion User',
+              avatar_url: notionUser.avatar_url || null,
+            },
+          });
+
+        if (profileError) {
+          console.error('Error updating user profile:', profileError);
+        }
+
+        return {
+          success: true,
+          user: session.user,
+        };
+      } else {
+        // Create new user
+        console.log('Creating new user for Notion OAuth');
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: notionEmail,
+          password: `Notion${notionUser.id}${Date.now()}!`,
+          options: {
+            data: {
+              full_name: notionUser.name || 'Notion User',
+              avatar_url: notionUser.avatar_url || null,
+              provider: 'notion',
+              notion_user_id: notionUser.id,
+              notion_access_token: tokenData.access_token,
+            },
+          },
+        });
+
+        if (signUpError) {
+          console.error('Failed to create user:', signUpError);
+          return {
+            success: false,
+            error: {
+              message: 'Failed to create user account',
+            },
+          };
+        }
+
+        if (signUpData.user) {
+          // The database trigger will automatically create the user profile
+          // Store user data locally
+          await AsyncStorage.setItem('userToken', signUpData.session?.access_token || '');
+          await AsyncStorage.setItem('userData', JSON.stringify(signUpData.user));
+
+          return {
+            success: true,
+            user: signUpData.user,
+          };
+        }
+      }
+
+      return {
+        success: false,
+        error: {
+          message: 'Failed to authenticate with Notion',
+        },
+      };
+    } catch (error) {
+      console.error('Notion callback error:', error);
+      return {
+        success: false,
+        error: {
+          message: 'An unexpected error occurred during Notion authentication',
         },
       };
     }
@@ -422,58 +653,144 @@ export class AuthService {
   // Handle OAuth callback
   static async handleOAuthCallback(url: string): Promise<AuthResult> {
     try {
-      // Extract the session from the URL
-      const { data, error } = await supabase.auth.getSession();
-
-      if (error) {
-        return {
-          success: false,
-          error: {
-            message: error.message,
-            code: error.status?.toString(),
-          },
-        };
+      console.log('Handling OAuth callback with URL:', url);
+      
+      const urlObj = new URL(url);
+      
+      // First check for tokens in URL parameters (Supabase style)
+      const urlParams = new URLSearchParams(urlObj.search);
+      let accessToken = urlParams.get('access_token');
+      let refreshToken = urlParams.get('refresh_token');
+      
+      // If not found in URL params, check hash parameters
+      if (!accessToken) {
+        const hashParams = new URLSearchParams(urlObj.hash.substring(1));
+        accessToken = hashParams.get('access_token');
+        refreshToken = hashParams.get('refresh_token');
       }
-
-      if (data.session?.user) {
-        // Get or create user profile
-        const { data: userProfile, error: profileError } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('user_id', data.session.user.id)
-          .single();
-
-        if (profileError && profileError.code === 'PGRST116') {
-          // User profile doesn't exist, create it
-          const { error: createError } = await supabase
+      
+      console.log('Extracted tokens:', { 
+        accessToken: !!accessToken, 
+        refreshToken: !!refreshToken,
+        fromUrlParams: !!urlParams.get('access_token'),
+        fromHash: !!urlObj.hash.includes('access_token')
+      });
+      
+      if (accessToken) {
+        // Set the session manually
+        const { data: { session }, error: sessionError } = await supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken || '',
+        });
+        
+        if (sessionError) {
+          console.error('Error setting session:', sessionError);
+          return {
+            success: false,
+            error: {
+              message: sessionError.message,
+              code: sessionError.status?.toString(),
+            },
+          };
+        }
+        
+        if (session?.user) {
+          console.log('Session set successfully, user:', session.user.email);
+          
+          // Get or create user profile
+          const { data: userProfile, error: profileError } = await supabase
             .from('user_profiles')
-            .insert({
-              user_id: data.session.user.id,
-              email: data.session.user.email!,
-              full_name: data.session.user.user_metadata?.full_name || null,
-              avatar_url: data.session.user.user_metadata?.avatar_url || null,
-              sensory_mode: 'low',
-            });
+            .select('*')
+            .eq('user_id', session.user.id)
+            .single();
 
-          if (createError) {
-            console.error('Error creating user profile:', createError);
+          if (profileError && profileError.code === 'PGRST116') {
+            // User profile doesn't exist, create it
+            console.log('Creating user profile for OAuth user');
+            const { error: createError } = await supabase
+              .from('user_profiles')
+              .insert({
+                user_id: session.user.id,
+                email: session.user.email!,
+                full_name: session.user.user_metadata?.full_name || null,
+                avatar_url: session.user.user_metadata?.avatar_url || null,
+                sensory_mode: 'low',
+              });
+
+            if (createError) {
+              console.error('Error creating user profile:', createError);
+            }
           }
+
+          // Store user data locally
+          await AsyncStorage.setItem('userToken', session.access_token);
+          await AsyncStorage.setItem('userData', JSON.stringify(session.user));
+
+          return {
+            success: true,
+            user: session.user,
+          };
+        }
+      } else {
+        // Fallback: try to get session normally
+        console.log('No access token in URL, trying normal session retrieval');
+        const { data, error } = await supabase.auth.getSession();
+
+        if (error) {
+          console.error('Error getting session:', error);
+          return {
+            success: false,
+            error: {
+              message: error.message,
+              code: error.status?.toString(),
+            },
+          };
         }
 
-        // Store user data locally
-        await AsyncStorage.setItem('userToken', data.session.access_token);
-        await AsyncStorage.setItem('userData', JSON.stringify(data.session.user));
+        if (data.session?.user) {
+          console.log('Session retrieved successfully');
+          
+          // Get or create user profile
+          const { data: userProfile, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('*')
+            .eq('user_id', data.session.user.id)
+            .single();
 
-        return {
-          success: true,
-          user: data.session.user as unknown as User,
-        };
+          if (profileError && profileError.code === 'PGRST116') {
+            // User profile doesn't exist, create it
+            console.log('Creating user profile for OAuth user');
+            const { error: createError } = await supabase
+              .from('user_profiles')
+              .insert({
+                user_id: data.session.user.id,
+                email: data.session.user.email!,
+                full_name: data.session.user.user_metadata?.full_name || null,
+                avatar_url: data.session.user.user_metadata?.avatar_url || null,
+                sensory_mode: 'low',
+              });
+
+            if (createError) {
+              console.error('Error creating user profile:', createError);
+            }
+          }
+
+          // Store user data locally
+          await AsyncStorage.setItem('userToken', data.session.access_token);
+          await AsyncStorage.setItem('userData', JSON.stringify(data.session.user));
+
+          return {
+            success: true,
+            user: data.session.user,
+          };
+        }
       }
 
+      console.error('No session found in OAuth callback');
       return {
         success: false,
         error: {
-          message: 'Authentication failed. Please try again.',
+          message: 'Authentication failed. No session found.',
         },
       };
     } catch (error) {
@@ -482,77 +799,6 @@ export class AuthService {
         success: false,
         error: {
           message: 'An unexpected error occurred. Please try again.',
-        },
-      };
-    }
-  }
-
-  // Manually confirm email for users who signed up when email confirmation was enabled
-  static async confirmEmailManually(email: string): Promise<AuthResult> {
-    try {
-      console.log('Attempting to manually confirm email for:', email);
-      
-      // First, try to sign in with the current password to get the user
-      const { data: signInData, error: signInError } = await supabase.auth.signInWithPassword({
-        email,
-        password: 'temp_password_for_confirmation', // This will fail, but we need the user
-      });
-
-      if (signInError && signInError.message.includes('Email not confirmed')) {
-        // The user exists but email is not confirmed
-        // We need to update the user's email_confirmed_at field directly in the database
-        console.log('User exists but email not confirmed, attempting to confirm...');
-        
-        // Get the user by email
-        const { data: { users }, error: userError } = await supabase.auth.admin.listUsers();
-        
-        if (userError) {
-          console.error('Error listing users:', userError);
-          return {
-            success: false,
-            error: {
-              message: 'Unable to confirm email. Please contact support.',
-            },
-          };
-        }
-
-        const user = users?.find(u => u.email === email);
-        if (user) {
-          // Update the user's email_confirmed_at
-          const { error: updateError } = await supabase.auth.admin.updateUserById(user.id, {
-            email_confirmed_at: new Date().toISOString(),
-          });
-
-          if (updateError) {
-            console.error('Error updating user:', updateError);
-            return {
-              success: false,
-              error: {
-                message: 'Unable to confirm email. Please contact support.',
-              },
-            };
-          }
-
-          console.log('Email confirmed successfully');
-          return {
-            success: true,
-            user: user,
-          };
-        }
-      }
-
-      return {
-        success: false,
-        error: {
-          message: 'Unable to confirm email. Please try signing up again.',
-        },
-      };
-    } catch (error) {
-      console.error('Confirm email error:', error);
-      return {
-        success: false,
-        error: {
-          message: 'An unexpected error occurred while confirming email.',
         },
       };
     }

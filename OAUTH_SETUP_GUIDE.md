@@ -1,267 +1,160 @@
-# Google & Apple OAuth Setup Guide
+# OAuth Provider Setup Guide for KindFrame
 
-## 🎯 Overview
+This guide will help you configure Google and Notion OAuth providers in your Supabase project.
 
-This guide will help you configure Google and Apple OAuth authentication in your Supabase project for the KindFrame app.
+## 🟢 Google OAuth Setup
 
-## 📋 Prerequisites
+### Step 1: Create Google Cloud Project
 
-- Supabase project with URL: `https://dlenuyofztbvhzmdfiek.supabase.co`
-- Project Reference: `dlenuyofztbvhzmdfiek`
-- Access to Google Cloud Console
-- Apple Developer Account (for Apple Sign-In)
+1. **Go to [Google Cloud Console](https://console.cloud.google.com/)**
+2. **Create a new project:**
+   - Click the project dropdown at the top
+   - Click "New Project"
+   - Name: `KindFrame`
+   - Click "Create"
 
----
+### Step 2: Enable Google+ API
 
-## 🔧 Google OAuth Setup
+1. **Go to APIs & Services → Library**
+2. **Search for "Google+ API"**
+3. **Click on it and press "Enable"**
 
-### Step 1: Google Cloud Console Setup
+### Step 3: Create OAuth 2.0 Credentials
 
-1. **Go to Google Cloud Console**
-   - Visit: https://console.cloud.google.com/
-   - Create a new project or select existing one
-
-2. **Enable Google+ API**
-   - Go to "APIs & Services" > "Library"
-   - Search for "Google+ API" and enable it
-   - Also enable "Google Identity" API
-
-3. **Create OAuth 2.0 Credentials**
-   - Go to "APIs & Services" > "Credentials"
-   - Click "Create Credentials" > "OAuth 2.0 Client IDs"
-   - Choose "Web application"
-   - Add authorized redirect URIs:
+1. **Go to APIs & Services → Credentials**
+2. **Click "Create Credentials" → "OAuth 2.0 Client IDs"**
+3. **Configure OAuth consent screen:**
+   - User Type: External
+   - App name: KindFrame
+   - User support email: your-email@gmail.com
+   - Developer contact information: your-email@gmail.com
+4. **Create OAuth 2.0 Client ID:**
+   - Application type: Web application
+   - Name: KindFrame Web Client
+   - **Authorized redirect URIs:**
      ```
      https://dlenuyofztbvhzmdfiek.supabase.co/auth/v1/callback
      ```
+5. **Click "Create"**
+6. **Copy your credentials:**
+   - Client ID: `123456789-abcdef.apps.googleusercontent.com`
+   - Client Secret: `GOCSPX-abcdefghijklmnop`
 
-4. **Get Client Credentials**
-   - Copy the **Client ID** and **Client Secret**
-   - Keep these secure for the next step
+### Step 4: Configure Google in Supabase
 
-### Step 2: Configure Supabase Google OAuth
+1. **Go to your Supabase Dashboard**
+2. **Navigate to Authentication → Providers**
+3. **Find "Google" and click "Edit"**
+4. **Enable Google provider**
+5. **Enter your credentials:**
+   - **Client ID:** Your Google Client ID
+   - **Client Secret:** Your Google Client Secret
+6. **Click "Save"**
 
-1. **Go to Supabase Dashboard**
-   - Visit: https://supabase.com/dashboard/project/dlenuyofztbvhzmdfiek
-   - Navigate to "Authentication" > "Providers"
+## 🔵 Notion OAuth Setup
 
-2. **Enable Google Provider**
-   - Find "Google" in the providers list
-   - Toggle it to "Enabled"
-   - Enter your Google Client ID and Client Secret
-   - Save the configuration
+### Step 1: Create Notion Integration
 
-3. **Test Google OAuth**
-   - Try signing in with Google from your app
-   - Check the authentication logs in Supabase
+1. **Go to [Notion Developers](https://developers.notion.com/)**
+2. **Sign in with your Notion account**
+3. **Click "New integration"**
+4. **Fill in the details:**
+   - **Name:** KindFrame
+   - **Description:** Productivity app integration
+   - **Logo:** Upload KindFrame logo (optional)
+   - **Capabilities:** Read content
+5. **Click "Submit"**
+6. **Copy your Integration Token (Client ID)**
 
----
+### Step 2: Configure Environment Variables
 
-## 🍎 Apple OAuth Setup
+Add these to your `.env` file:
 
-### Step 1: Apple Developer Console Setup
+```env
+# Notion OAuth
+EXPO_PUBLIC_NOTION_CLIENT_ID=your-notion-integration-token
+EXPO_PUBLIC_NOTION_CLIENT_SECRET=your-notion-client-secret
+```
 
-1. **Go to Apple Developer Console**
-   - Visit: https://developer.apple.com/account/
-   - Sign in with your Apple Developer account
+### Step 3: Update App Configuration
 
-2. **Create App ID**
-   - Go to "Certificates, Identifiers & Profiles"
-   - Click "Identifiers" > "+" to create new
-   - Choose "App IDs" > "App"
-   - Fill in the details:
-     - **Description**: KindFrame
-     - **Bundle ID**: com.kindframe.app
-     - **Capabilities**: Check "Sign In with Apple"
+The app is already configured to handle Notion OAuth. The custom implementation will:
 
-3. **Create Service ID**
-   - Go to "Identifiers" > "+" > "Services IDs"
-   - Fill in the details:
-     - **Description**: KindFrame Web Service
-     - **Identifier**: com.kindframe.app.service
-     - **Capabilities**: Check "Sign In with Apple"
+1. **Redirect users to Notion OAuth**
+2. **Handle the callback**
+3. **Create user accounts in Supabase**
+4. **Store Notion tokens for API access**
 
-4. **Configure Sign In with Apple**
-   - Click on your Service ID
-   - Go to "Sign In with Apple" > "Configure"
-   - Add your domain: `dlenuyofztbvhzmdfiek.supabase.co`
-   - Add return URLs:
-     ```
-     https://dlenuyofztbvhzmdfiek.supabase.co/auth/v1/callback
-     ```
+## 🔧 Testing OAuth
 
-5. **Create Private Key**
-   - Go to "Keys" > "+" to create new key
-   - Enable "Sign In with Apple"
-   - Download the `.p8` file (keep it secure)
-   - Note the Key ID
+### Test Google OAuth:
 
-### Step 2: Configure Supabase Apple OAuth
+1. **Start your app**
+2. **Go to signup/signin screen**
+3. **Click "Continue with Google"**
+4. **Complete Google OAuth flow**
+5. **Should redirect back to your app**
 
-1. **Go to Supabase Dashboard**
-   - Visit: https://supabase.com/dashboard/project/dlenuyofztbvhzmdfiek
-   - Navigate to "Authentication" > "Providers"
+### Test Notion OAuth:
 
-2. **Enable Apple Provider**
-   - Find "Apple" in the providers list
-   - Toggle it to "Enabled"
-   - Enter the following details:
-     - **Service ID**: com.kindframe.app.service
-     - **Key ID**: [Your Key ID from Apple]
-     - **Private Key**: [Content of your .p8 file]
-     - **Team ID**: [Your Apple Team ID]
+1. **Start your app**
+2. **Go to signup/signin screen**
+3. **Click "Continue with Notion"**
+4. **Complete Notion OAuth flow**
+5. **Should redirect back to your app**
 
-3. **Test Apple OAuth**
-   - Try signing in with Apple from your app
-   - Check the authentication logs in Supabase
+## 🚨 Troubleshooting
 
----
+### Google OAuth Issues:
 
-## 🔗 Deep Linking Configuration
+- **"Invalid redirect URI"**: Make sure the redirect URI in Google Cloud Console matches exactly
+- **"Client ID not found"**: Verify your Client ID is correct
+- **"Unauthorized"**: Check if Google+ API is enabled
 
-### Update app.json (Already Done)
+### Notion OAuth Issues:
 
-The app.json has been configured with:
-- **Scheme**: `kindframe`
-- **Apple Sign-In**: Enabled
-- **Bundle ID**: `com.kindframe.app`
+- **"Integration not found"**: Verify your Notion integration token
+- **"Invalid redirect URI"**: Check the redirect URI in your Notion integration
+- **"Permission denied"**: Make sure your integration has the right permissions
 
-### OAuth Callback URLs
+### General Issues:
 
-The following URLs are configured for OAuth callbacks:
-- **Google**: `kindframe://auth-callback`
-- **Apple**: `kindframe://auth-callback`
+- **Check browser console** for detailed error messages
+- **Verify environment variables** are set correctly
+- **Ensure Supabase project** is properly configured
 
----
+## 📝 Environment Variables
 
-## 🧪 Testing OAuth Authentication
+Make sure these are in your `.env` file:
 
-### 1. Test Google Sign-In
-1. Open your app
-2. Go to Sign In screen
-3. Tap "Continue with Google"
-4. Complete the Google OAuth flow
-5. Verify you're redirected back to the app
+```env
+# Supabase
+EXPO_PUBLIC_SUPABASE_URL=https://dlenuyofztbvhzmdfiek.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
-### 2. Test Apple Sign-In
-1. Open your app
-2. Go to Sign In screen
-3. Tap "Continue with Apple"
-4. Complete the Apple OAuth flow
-5. Verify you're redirected back to the app
+# Notion OAuth
+EXPO_PUBLIC_NOTION_CLIENT_ID=your-notion-integration-token
+EXPO_PUBLIC_NOTION_CLIENT_SECRET=your-notion-client-secret
+```
 
-### 3. Check Authentication Logs
-1. Go to Supabase Dashboard
-2. Navigate to "Authentication" > "Logs"
-3. Verify successful authentication events
+## 🎯 Next Steps
 
----
+After configuring OAuth:
 
-## 🔍 Troubleshooting
-
-### Common Google OAuth Issues
-
-1. **"Invalid redirect URI"**
-   - Ensure the redirect URI in Google Cloud Console matches exactly
-   - Check for trailing slashes or typos
-
-2. **"Client ID not found"**
-   - Verify the Client ID is correct in Supabase
-   - Ensure the Google+ API is enabled
-
-3. **"Access denied"**
-   - Check if the Google account has the necessary permissions
-   - Verify the OAuth consent screen is configured
-
-### Common Apple OAuth Issues
-
-1. **"Invalid client"**
-   - Verify the Service ID matches exactly
-   - Check the Key ID and Private Key are correct
-
-2. **"Invalid redirect URI"**
-   - Ensure the return URL in Apple Developer Console is correct
-   - Check the domain configuration
-
-3. **"Team ID not found"**
-   - Verify the Team ID is correct
-   - Ensure you're using the right Apple Developer account
-
-### General OAuth Issues
-
-1. **Callback not working**
-   - Check the deep linking configuration
-   - Verify the auth-callback.tsx file exists
-   - Test the redirect URL manually
-
-2. **User profile not created**
-   - Check the handleOAuthCallback method
-   - Verify the users table exists
-   - Check the RLS policies
-
----
-
-## 📱 Mobile App Configuration
-
-### iOS Configuration
-- Apple Sign-In is enabled in app.json
-- Bundle ID: `com.kindframe.app`
-- Team ID should match your Apple Developer account
-
-### Android Configuration
-- Package name: `com.kindframe.app`
-- SHA-1 fingerprint may be required for Google OAuth
-
----
-
-## 🔒 Security Considerations
-
-1. **Keep Credentials Secure**
-   - Never commit OAuth credentials to version control
-   - Use environment variables for sensitive data
-   - Rotate keys regularly
-
-2. **Validate User Data**
-   - Always verify user information from OAuth providers
-   - Implement proper error handling
-   - Add rate limiting if needed
-
-3. **Monitor Authentication**
-   - Check Supabase authentication logs regularly
-   - Monitor for suspicious activity
-   - Set up alerts for failed authentication attempts
-
----
-
-## ✅ Success Checklist
-
-- [ ] Google OAuth configured in Supabase
-- [ ] Apple OAuth configured in Supabase
-- [ ] Deep linking working correctly
-- [ ] OAuth callback handler implemented
-- [ ] User profiles created automatically
-- [ ] Sign-in and sign-up flows working
-- [ ] Error handling implemented
-- [ ] Loading states working
-- [ ] Authentication logs showing success
-
----
-
-## 🚀 Next Steps
-
-1. **Test both OAuth providers** thoroughly
-2. **Implement user profile management**
-3. **Add email verification flow**
-4. **Set up password reset functionality**
-5. **Configure user preferences and sensory modes**
-
----
+1. **Test both Google and Notion signup/signin**
+2. **Verify user profiles are created correctly**
+3. **Test logout functionality**
+4. **Continue with other app features**
 
 ## 📞 Support
 
 If you encounter issues:
-1. Check the Supabase authentication logs
-2. Verify the OAuth provider configurations
-3. Test the redirect URLs manually
-4. Check the browser console for errors
-5. Review the app logs for debugging information 
+
+1. **Check the browser console** for error messages
+2. **Verify all credentials** are correct
+3. **Ensure redirect URIs** match exactly
+4. **Test with a fresh browser session**
+
+---
+
+**Note:** Notion OAuth might require additional setup depending on your specific use case. The custom implementation provided should handle most scenarios.
