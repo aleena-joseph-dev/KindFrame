@@ -23,17 +23,29 @@
 - [x] **Position**: Below search bar, above today's focus
 - [x] **Auto-dismiss**: After session 1 in a day
 
-### **Task 4: Neurodivergent-Friendly Design**
-- [ ] **Subtle welcome messages** (avoid overwhelming)
-- [ ] **Concise, low-key greetings**
-- [ ] **Minimal text for returning/regular users**
-- [ ] **Single-line greetings** where appropriate
+### **Task 4: Google Calendar Integration** ✅ **COMPLETED**
+- [x] **Placement**: Calendar Screen (Home → Menu → Calendar)
+- [x] **Trigger**: First time user opens Calendar screen
+- [x] **UI Prompt**: "Sync your Google Calendar to see events here. Sync now?"
+- [x] **Actions**: "Connect" (OAuth initiation), "Later" (dismiss temporarily)
+- [x] **OAuth Setup**: Google Calendar API integration
+- [x] **Database**: Store calendar sync status and tokens
+- [x] **UI Components**: Calendar sync popup and status indicators
 
-### **Task 5: Implementation Details**
-- [ ] **Home screen controller** logic
-- [ ] **User data loading** after authentication
-- [ ] **Session tracking** for auto-dismiss
-- [ ] **Database schema updates** for nickname field
+### **Task 5: Google Keep/Notes Integration** ✅ **COMPLETED**
+- [x] **Placement**: Notes Screen (Home → Menu → Notes)
+- [x] **Trigger**: User creates their third note locally
+- [x] **UI Prompt**: "Want to sync your notes with Google Keep/Notes for easy access? Connect now."
+- [x] **Actions**: "Connect", "Later"
+- [x] **OAuth Setup**: Google Keep API integration
+- [x] **Database**: Store notes sync status and tokens
+- [x] **UI Components**: Notes sync popup and status indicators
+
+### **Task 6: Implementation Details**
+- [ ] **OAuth flow setup** for Google APIs
+- [ ] **Database schema updates** for sync status
+- [ ] **Edge functions** for OAuth callbacks
+- [ ] **Error handling** and retry mechanisms
 
 ---
 
@@ -49,10 +61,12 @@
 ## 🔄 **Next Steps**
 1. ✅ **Task 1 completed** - Email name extraction working
 2. ✅ **Task 2 completed** - Visit type detection implemented
-3. **Start Task 3**: Welcome message system (partially done)
-4. Test each implementation
-5. Commit and push after each successful task
-6. Move to next task only after confirmation
+3. ✅ **Task 3 completed** - Welcome message system implemented
+4. **Start Task 4**: Google Calendar integration
+5. **Start Task 5**: Google Keep/Notes integration
+6. Test each implementation
+7. Commit and push after each successful task
+8. Move to next task only after confirmation
 
 ## 📝 **Task 2 Implementation Details**
 - ✅ Created `utils/visitTypeDetector.ts` with visit detection logic

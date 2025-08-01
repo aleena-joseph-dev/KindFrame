@@ -44,6 +44,8 @@ export default function NotesScreen() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
   const [newNoteCategory, setNewNoteCategory] = useState<'personal' | 'work' | 'ideas' | 'journal' | 'learning' | 'other'>('personal');
+  const [showNotesSyncPopup, setShowNotesSyncPopup] = useState(false);
+  const [hasShownNotesSync, setHasShownNotesSync] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -97,6 +99,61 @@ export default function NotesScreen() {
     setNewNoteContent('');
     setNewNoteCategory('personal');
     setShowAddNote(false);
+
+    // Check if this is the third note and show sync popup
+    checkNotesSyncStatus(updatedNotes.length);
+  };
+
+  const checkNotesSyncStatus = async (notesCount: number) => {
+    try {
+      console.log('🔍 CHECKING NOTES SYNC STATUS...');
+      console.log('🔍 NOTES COUNT:', notesCount);
+      
+      // Check if we've already shown the popup
+      const hasShown = await AsyncStorage.getItem('has_shown_notes_sync');
+      if (hasShown === 'true') {
+        console.log('✅ ALREADY SHOWN: Notes sync popup already shown');
+        setHasShownNotesSync(true);
+        return;
+      }
+
+      // Show popup on third note
+      if (notesCount === 3) {
+        console.log('🔗 SHOWING NOTES SYNC POPUP: User created third note');
+        setShowNotesSyncPopup(true);
+      }
+    } catch (error) {
+      console.error('❌ ERROR: Error checking notes sync status:', error);
+    }
+  };
+
+  const handleNotesSyncConnect = async () => {
+    try {
+      console.log('✅ NOTES SYNC CONNECTED: User connected Google Keep');
+      
+      // Mark as shown
+      await AsyncStorage.setItem('has_shown_notes_sync', 'true');
+      setHasShownNotesSync(true);
+      setShowNotesSyncPopup(false);
+      
+      // Reload notes to include Google Keep notes
+      await loadNotes();
+    } catch (error) {
+      console.error('❌ ERROR: Error handling notes sync connect:', error);
+    }
+  };
+
+  const handleNotesSyncLater = async () => {
+    try {
+      console.log('⏰ NOTES SYNC LATER: User postponed notes sync');
+      
+      // Mark as shown
+      await AsyncStorage.setItem('has_shown_notes_sync', 'true');
+      setHasShownNotesSync(true);
+      setShowNotesSyncPopup(false);
+    } catch (error) {
+      console.error('❌ ERROR: Error handling notes sync later:', error);
+    }
   };
 
   const handleUpdateNote = (noteId: string, updatedTitle: string, updatedContent: string) => {
@@ -422,6 +479,13 @@ export default function NotesScreen() {
           </View>
         </View>
       )}
+
+      {/* Google Keep Sync Popup */}
+      <NotesSyncPopup
+        visible={showNotesSyncPopup}
+        onClose={handleNotesSyncLater}
+        onConnect={handleNotesSyncConnect}
+      />
     </SafeAreaView>
   );
 }

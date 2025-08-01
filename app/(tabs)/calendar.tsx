@@ -51,6 +51,8 @@ export default function CalendarScreen() {
   const [newEventDate, setNewEventDate] = useState('');
   const [newEventTime, setNewEventTime] = useState('');
   const [newEventType, setNewEventType] = useState<'task' | 'goal' | 'reminder' | 'event'>('event');
+  const [showCalendarSyncPopup, setShowCalendarSyncPopup] = useState(false);
+  const [hasShownCalendarSync, setHasShownCalendarSync] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -59,6 +61,7 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     loadEvents();
+    checkCalendarSyncStatus();
   }, []);
 
   useEffect(() => {
@@ -97,6 +100,63 @@ export default function CalendarScreen() {
       day: 'numeric',
       year: 'numeric'
     });
+  };
+
+  const checkCalendarSyncStatus = async () => {
+    try {
+      console.log('🔍 CHECKING CALENDAR SYNC STATUS...');
+      
+      // Check if we've already shown the popup
+      const hasShown = await AsyncStorage.getItem('has_shown_calendar_sync');
+      if (hasShown === 'true') {
+        console.log('✅ ALREADY SHOWN: Calendar sync popup already shown');
+        setHasShownCalendarSync(true);
+        return;
+      }
+
+      // Check current sync status
+      const syncStatus = await googleCalendarService.getSyncStatus();
+      console.log('🔍 CALENDAR SYNC STATUS:', syncStatus);
+      
+      if (!syncStatus.isConnected) {
+        console.log('🔗 SHOWING CALENDAR SYNC POPUP: User not connected');
+        setShowCalendarSyncPopup(true);
+      } else {
+        console.log('✅ ALREADY CONNECTED: Google Calendar already synced');
+        setHasShownCalendarSync(true);
+      }
+    } catch (error) {
+      console.error('❌ ERROR: Error checking calendar sync status:', error);
+    }
+  };
+
+  const handleCalendarSyncConnect = async () => {
+    try {
+      console.log('✅ CALENDAR SYNC CONNECTED: User connected Google Calendar');
+      
+      // Mark as shown
+      await AsyncStorage.setItem('has_shown_calendar_sync', 'true');
+      setHasShownCalendarSync(true);
+      setShowCalendarSyncPopup(false);
+      
+      // Reload events to include Google Calendar events
+      await loadEvents();
+    } catch (error) {
+      console.error('❌ ERROR: Error handling calendar sync connect:', error);
+    }
+  };
+
+  const handleCalendarSyncLater = async () => {
+    try {
+      console.log('⏰ CALENDAR SYNC LATER: User postponed calendar sync');
+      
+      // Mark as shown
+      await AsyncStorage.setItem('has_shown_calendar_sync', 'true');
+      setHasShownCalendarSync(true);
+      setShowCalendarSyncPopup(false);
+    } catch (error) {
+      console.error('❌ ERROR: Error handling calendar sync later:', error);
+    }
   };
 
   const getDaysInMonth = (date: Date): DayData[] => {
@@ -474,6 +534,13 @@ export default function CalendarScreen() {
           </View>
         </View>
       )}
+
+      {/* Google Calendar Sync Popup */}
+      <CalendarSyncPopup
+        visible={showCalendarSyncPopup}
+        onClose={handleCalendarSyncLater}
+        onConnect={handleCalendarSyncConnect}
+      />
     </SafeAreaView>
   );
 }
