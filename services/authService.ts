@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Database } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
+import { extractNameFromEmail } from '../utils/nameExtractor';
 
 type UserProfile = Database['public']['Tables']['user_profiles']['Row'];
 
@@ -21,12 +22,21 @@ export class AuthService {
     try {
       console.log('Attempting signup with:', { email, fullName });
       
+      // Extract name from email if no fullName provided
+      let nickname = fullName;
+      if (!nickname) {
+        const extractedName = extractNameFromEmail(email);
+        nickname = extractedName.displayName;
+        console.log('Extracted nickname from email:', nickname);
+      }
+      
       const { data, error } = await supabase.auth.signUp({
         email,
         password,
         options: {
           data: {
-            full_name: fullName,
+            full_name: nickname,
+            nickname: nickname, // Store as nickname for easy access
           },
         },
       });
@@ -64,20 +74,16 @@ export class AuthService {
       console.log('Signup successful:', data);
 
       if (data.user) {
-        // Since email confirmation is disabled, we need to manually confirm the email
-        // This is a workaround for users who signed up when email confirmation was enabled
-        if (!data.user.email_confirmed_at) {
-          console.log('Email not confirmed, attempting to confirm manually...');
-          // Note: This would require admin privileges, so we'll handle it differently
-          // For now, we'll just proceed and let the user know they need to confirm manually
-        }
-
-        // The database trigger will automatically create the user profile
-        // No need to manually create it here
-
-        // Store user data locally
+        // Step 1: User created in auth.users successfully
+        console.log('User created in auth.users successfully:', data.user.id);
+        
+        // Step 2: Store user data locally
         await AsyncStorage.setItem('userToken', data.session?.access_token || '');
         await AsyncStorage.setItem('userData', JSON.stringify(data.user));
+        await AsyncStorage.setItem('extractedNickname', nickname);
+
+        // Step 3: Profile will be created by database trigger
+        console.log('Profile will be created by database trigger');
 
         return {
           success: true,
@@ -145,6 +151,14 @@ export class AuthService {
       console.log('Signin successful:', data);
 
       if (data.user) {
+        // Extract nickname from email for onboarding
+        const extractedName = extractNameFromEmail(email);
+        const nickname = extractedName.displayName;
+        console.log('Extracted nickname from email for signin:', nickname);
+        
+        // Store the extracted nickname for onboarding
+        await AsyncStorage.setItem('extractedNickname', nickname);
+        
         // Get user profile from our custom user_profiles table
         const { data: userProfile, error: profileError } = await supabase
           .from('user_profiles')
@@ -154,6 +168,24 @@ export class AuthService {
 
         if (profileError) {
           console.error('Error fetching user profile:', profileError);
+        }
+        console.log('<<<<1User profile',data.user.id);
+        // Check if this is the user's first login and initialize onboarding if needed
+        if (userProfile && !userProfile.settings?.hasCompletedOnboarding) {
+          try {
+            await this.updateUserProfile(data.user.id, {
+              settings: {
+                ...userProfile.settings,
+                nickname: nickname,
+                full_name: nickname,
+                hasCompletedOnboarding: false, // Will be set to true after onboarding
+                firstLoginAt: userProfile.settings?.firstLoginAt || new Date().toISOString(),
+              }
+            });
+            console.log('User profile updated with onboarding status for first login');
+          } catch (error) {
+            console.error('Error updating user profile for first login:', error);
+          }
         }
 
         // Store user data locally
@@ -553,60 +585,440 @@ export class AuthService {
   // Get Current User
   static async getCurrentUser(): Promise<any | null> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      console.log('👤 GETTING CURRENT USER: Attempting to get current authenticated user');
+      
+      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      
+      if (authError) {
+        console.error('❌ AUTH ERROR: Error getting authenticated user:', authError);
+        return null;
+      }
       
       if (user) {
-        // Get user profile from our custom user_profiles table
-        const { data: userProfile } = await supabase
+        console.log('✅ AUTH USER FOUND: Getting current user by user_id:', user.id);
+        
+        // Always query by user_id from Auth
+        const { data: userProfile, error: profileError } = await supabase
           .from('user_profiles')
           .select('*')
           .eq('user_id', user.id)
           .single();
 
-        return userProfile || user;
+        if (profileError && profileError.code === 'PGRST116') {
+          // Profile doesn't exist yet, return user without profile
+          console.log('⚠️ PROFILE NOT FOUND: User profile does not exist yet for user:', user.id);
+          return {
+            ...user,
+            profile: null
+          };
+                 } else if (profileError) {
+           console.error('❌ PROFILE FETCH ERROR: Error getting user profile:', {
+             code: profileError.code,
+             message: profileError.message,
+             details: profileError.details,
+             hint: profileError.hint
+           });
+           
+           // Detect common database errors
+           if (profileError.code === '23503') {
+             console.error('🚨 FOREIGN KEY ERROR: User does not exist in auth.users:', user.id);
+           } else if (profileError.code === '23502') {
+             console.error('🚨 NOT NULL ERROR: Missing required field in profile');
+           }
+           
+           return {
+             ...user,
+             profile: null
+           };
+         }
+
+        // Return combined user data with auth user as primary
+        const result = {
+          ...user,
+          profile: userProfile,
+          // For backward compatibility, merge profile data
+          ...userProfile
+        };
+        
+        console.log('=== GET CURRENT USER RESULT STRUCTURE ===',result);
+        console.log('🔍 AUTH USER DATA:', {
+          id: user.id,
+          email: user.email,
+          user_metadata: user.user_metadata
+        });
+        
+        console.log('🔍 PROFILE DATA:', {
+          profileExists: !!userProfile,
+          profileId: userProfile?.id,
+          profileUserId: userProfile?.user_id,
+          profileSettings: userProfile?.settings,
+          profileEmail: userProfile?.email
+        });
+        
+        console.log('🔍 MERGED RESULT:', {
+          resultId: result.id,
+          resultUserId: result.user_id,
+          resultSettings: result.settings,
+          resultProfile: result.profile,
+          hasProfileProperty: !!result.profile,
+          hasSettingsProperty: !!result.settings
+        });
+        
+        console.log('⚠️ WARNING: Profile data is merged into result object for backward compatibility');
+        console.log('   - result.id = auth.users.id');
+        console.log('   - result.user_id = user_profiles.user_id (same as result.id)');
+        console.log('   - result.settings = user_profiles.settings');
+        console.log('   - result.profile = full profile object');
+        
+        return result;
       }
 
+      console.log('❌ NO AUTH USER: No authenticated user found');
       return null;
     } catch (error) {
-      console.error('Get current user error:', error);
+      console.error('❌ GET CURRENT USER EXCEPTION:', error);
       return null;
     }
   }
 
            // Update User Profile
-         static async updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<AuthResult> {
+         // Helper method to get user profile
+         static async getProfile(userId: string): Promise<any | null> {
            try {
+             console.log('🔍 FETCHING PROFILE: Attempting to get profile for userId:', userId);
+             
+             const { data: profile, error } = await supabase
+               .from('user_profiles')
+               .select('*')
+               .eq('user_id', userId)
+               .single();
+             
+             if (error && error.code === 'PGRST116') {
+               // Profile doesn't exist
+               console.log('✅ PROFILE NOT FOUND: No profile exists for user:', userId);
+               return null;
+             } else if (error) {
+               console.error('❌ PROFILE FETCH ERROR:', {
+                 code: error.code,
+                 message: error.message,
+                 details: error.details,
+                 hint: error.hint
+               });
+               return null;
+             }
+             
+             console.log('✅ PROFILE FOUND: Retrieved profile for user:', userId, 'Data:', profile);
+             return profile;
+           } catch (error) {
+             console.error('❌ PROFILE FETCH EXCEPTION:', error);
+             return null;
+           }
+         }
+
+         // Helper method to update profile
+         static async updateProfile(userId: string, updates: any): Promise<any> {
+           try {
+             console.log('🔄 UPDATING PROFILE: Attempting to update profile for userId:', userId, 'with updates:', updates);
+             
              const { data, error } = await supabase
                .from('user_profiles')
                .update(updates)
                .eq('user_id', userId)
                .select()
                .single();
+             
+             if (error) {
+               console.error('❌ PROFILE UPDATE ERROR:', {
+                 code: error.code,
+                 message: error.message,
+                 details: error.details,
+                 hint: error.hint
+               });
+               
+               // Detect common database errors
+               if (error.code === '23505') {
+                 console.error('🚨 DUPLICATE KEY ERROR: Attempted to create duplicate profile for user:', userId);
+               } else if (error.code === '23503') {
+                 console.error('🚨 FOREIGN KEY ERROR: User does not exist in auth.users:', userId);
+               } else if (error.code === '23502') {
+                 console.error('🚨 NOT NULL ERROR: Missing required field in profile update');
+               }
+               
+               throw error;
+             }
+             
+             console.log('✅ PROFILE UPDATED: Successfully updated profile for user:', userId, 'Result:', data);
+             return data;
+           } catch (error) {
+             console.error('❌ PROFILE UPDATE EXCEPTION:', error);
+             throw error;
+           }
+         }
 
-      if (error) {
-        return {
-          success: false,
-          error: {
-            message: error.message,
-            code: error.code,
-          },
-        };
-      }
+         // Helper method to insert profile
+         static async insertProfile(profileData: any): Promise<any> {
+           try {
+             console.log('➕ INSERTING PROFILE: Attempting to insert new profile with data:', profileData);
+             
+             const { data, error } = await supabase
+               .from('user_profiles')
+               .insert(profileData)
+               .select()
+               .single();
+             
+             if (error) {
+               console.error('❌ PROFILE INSERT ERROR:', {
+                 code: error.code,
+                 message: error.message,
+                 details: error.details,
+                 hint: error.hint
+               });
+               
+               // Detect common database errors
+               if (error.code === '23505') {
+                 console.error('🚨 DUPLICATE KEY ERROR: Attempted to create duplicate profile for user:', profileData.user_id);
+               } else if (error.code === '23503') {
+                 console.error('🚨 FOREIGN KEY ERROR: User does not exist in auth.users:', profileData.user_id);
+               } else if (error.code === '23502') {
+                 console.error('🚨 NOT NULL ERROR: Missing required field in profile creation');
+               }
+               
+               throw error;
+             }
+             
+             console.log('✅ PROFILE INSERTED: Successfully inserted new profile:', data);
+             return data;
+           } catch (error) {
+             console.error('❌ PROFILE INSERT EXCEPTION:', error);
+             throw error;
+           }
+         }
 
-      return {
-        success: true,
-        user: data,
-      };
-    } catch (error) {
-      console.error('Update user profile error:', error);
-      return {
-        success: false,
-        error: {
-          message: 'Failed to update profile. Please try again.',
-        },
-      };
-    }
-  }
+         // Helper method to ensure user exists in auth.users
+         static async ensureUserExists(userId: string): Promise<boolean> {
+           try {
+             console.log('🔐 CHECKING AUTH USER: Verifying user exists in auth.users for userId:', userId);
+             
+             const { data: { user }, error } = await supabase.auth.getUser();
+             if (error || !user || user.id !== userId) {
+               console.error('❌ AUTH USER NOT FOUND:', { 
+                 userId, 
+                 error: error?.message,
+                 authUserId: user?.id,
+                 isMatch: user?.id === userId
+               });
+               return false;
+             }
+             
+             console.log('✅ AUTH USER FOUND: User exists in auth.users:', user.id);
+             return true;
+           } catch (error) {
+             console.error('❌ AUTH USER CHECK EXCEPTION:', error);
+             return false;
+           }
+         }
+
+         static async updateUserProfile(userId: string, updates: Partial<UserProfile>): Promise<AuthResult> {
+           try {
+             console.log('🚀 STARTING PROFILE UPDATE: updateUserProfile called for userId:', userId);
+             console.log('📝 UPDATE DATA:', updates);
+             
+             // Get authenticated user first - this is the source of truth
+             const { data: authUser, error: authError } = await supabase.auth.getUser();
+             if (authError || !authUser.user) {
+               console.error('❌ AUTHENTICATION ERROR: Error getting auth user:', authError);
+               return {
+                 success: false,
+                 error: {
+                   message: 'User not authenticated',
+                 },
+               };
+             }
+
+             // Always use the authenticated user's ID for profile operations
+             const authenticatedUserId = authUser.user.id;
+             console.log('✅ AUTHENTICATED USER ID:', authenticatedUserId);
+             console.log('📝 PROVIDED USER ID:', userId);
+             
+             // Validate that the provided userId matches the authenticated user
+             if (userId !== authenticatedUserId) {
+               console.error('❌ USER ID MISMATCH: Provided userId does not match authenticated user:', {
+                 providedUserId: userId,
+                 authenticatedUserId: authenticatedUserId
+               });
+               return {
+                 success: false,
+                 error: {
+                   message: 'User ID mismatch - use authenticated user ID',
+                 },
+               };
+             }
+
+             console.log('✅ USER ID VALIDATION PASSED: Using authenticated user ID:', authenticatedUserId);
+
+             // Handle JSONB updates properly
+             const updateData: any = {};
+             
+             if (updates.preferences) {
+               updateData.preferences = updates.preferences;
+             }
+             
+             if (updates.settings) {
+               updateData.settings = updates.settings;
+             }
+             
+             // Handle other fields
+             if (updates.avatar_url) {
+               updateData.avatar_url = updates.avatar_url;
+             }
+             
+             if (updates.sensory_mode) {
+               updateData.sensory_mode = updates.sensory_mode;
+             }
+             
+             // Only update if we have data to update
+             if (Object.keys(updateData).length === 0) {
+               console.log('No valid update data provided');
+               return {
+                 success: false,
+                 error: {
+                   message: 'No valid update data provided',
+                 },
+               };
+             }
+
+             console.log('🔄 PROFILE LOGIC: Starting insert/update logic for user:', userId, 'with data:', updateData);
+
+             // Use authenticated user ID for all profile operations
+             const profile = await this.getProfile(authenticatedUserId);
+
+             if (profile) {
+               // update
+               console.log('✅ PROFILE EXISTS: Profile found, updating existing profile');
+               try {
+                 const updatedProfile = await this.updateProfile(authenticatedUserId, updateData);
+                 console.log('✅ PROFILE UPDATE SUCCESS: Profile updated successfully:', updatedProfile);
+                 return {
+                   success: true,
+                   user: updatedProfile,
+                 };
+               } catch (updateError) {
+                 console.error('❌ PROFILE UPDATE FAILED: Error updating profile:', updateError);
+                 
+                 // Detect common database errors
+                 if (updateError?.code === '23505') {
+                   console.error('🚨 DUPLICATE KEY ERROR: Attempted to create duplicate profile for user:', authenticatedUserId);
+                   return {
+                     success: false,
+                     error: {
+                       message: 'Profile already exists - use update instead of insert',
+                       code: 'DUPLICATE_PROFILE',
+                     },
+                   };
+                 } else if (updateError?.code === '23503') {
+                   console.error('🚨 FOREIGN KEY ERROR: User does not exist in auth.users:', authenticatedUserId);
+                   return {
+                     success: false,
+                     error: {
+                       message: 'User does not exist - create user in auth.users first',
+                       code: 'USER_NOT_FOUND',
+                     },
+                   };
+                 }
+                 
+                 return {
+                   success: false,
+                   error: {
+                     message: 'Failed to update profile',
+                     code: updateError?.code,
+                   },
+                 };
+               }
+             } else {
+               // insert
+               console.log('➕ PROFILE NOT FOUND: Profile does not exist, inserting new profile');
+               const userEmail = authUser.user.email;
+               if (!userEmail) {
+                 console.error('❌ EMAIL ERROR: User email is null');
+                 return {
+                   success: false,
+                   error: {
+                     message: 'User email not found',
+                   },
+                 };
+               }
+
+               console.log('✅ EMAIL FOUND: User email for profile creation:', userEmail);
+               
+               try {
+                 const newProfile = await this.insertProfile({
+                   user_id: authenticatedUserId,
+                   email: userEmail,
+                   ...updateData
+                 });
+                 console.log('✅ PROFILE INSERT SUCCESS: Profile inserted successfully:', newProfile);
+                 return {
+                   success: true,
+                   user: newProfile,
+                 };
+               } catch (insertError) {
+                 console.error('❌ PROFILE INSERT FAILED: Error inserting profile:', insertError);
+                 
+                 // Detect common database errors
+                 if (insertError?.code === '23505') {
+                   console.error('🚨 DUPLICATE KEY ERROR: Attempted to create duplicate profile for user:', authenticatedUserId);
+                   return {
+                     success: false,
+                     error: {
+                       message: 'Profile already exists - use update instead of insert',
+                       code: 'DUPLICATE_PROFILE',
+                     },
+                   };
+                 } else if (insertError?.code === '23503') {
+                   console.error('🚨 FOREIGN KEY ERROR: User does not exist in auth.users:', authenticatedUserId);
+                   return {
+                     success: false,
+                     error: {
+                       message: 'User does not exist - create user in auth.users first',
+                       code: 'USER_NOT_FOUND',
+                     },
+                   };
+                 } else if (insertError?.code === '23502') {
+                   console.error('🚨 NOT NULL ERROR: Missing required field in profile creation');
+                   return {
+                     success: false,
+                     error: {
+                       message: 'Missing required field - check email and user_id',
+                       code: 'MISSING_REQUIRED_FIELD',
+                     },
+                   };
+                 }
+                 
+                 return {
+                   success: false,
+                   error: {
+                     message: 'Failed to insert profile',
+                     code: insertError?.code,
+                   },
+                 };
+               }
+             }
+           } catch (error) {
+             console.error('❌ PROFILE UPDATE EXCEPTION: Unhandled error in updateUserProfile:', {
+               error: error,
+               message: error?.message,
+               code: error?.code,
+               stack: error?.stack
+             });
+             return {
+               success: false,
+               error: {
+                 message: 'Failed to update profile. Please try again.',
+                 code: error?.code,
+               },
+             };
+           }
+         }
 
   // Reset Password
   static async resetPassword(email: string): Promise<AuthResult> {
@@ -705,21 +1117,8 @@ export class AuthService {
             .single();
 
           if (profileError && profileError.code === 'PGRST116') {
-            // User profile doesn't exist, create it
-            console.log('Creating user profile for OAuth user');
-            const { error: createError } = await supabase
-              .from('user_profiles')
-              .insert({
-                user_id: session.user.id,
-                email: session.user.email!,
-                full_name: session.user.user_metadata?.full_name || null,
-                avatar_url: session.user.user_metadata?.avatar_url || null,
-                sensory_mode: 'low',
-              });
-
-            if (createError) {
-              console.error('Error creating user profile:', createError);
-            }
+            // User profile doesn't exist - let the database trigger handle it
+            console.log('User profile does not exist yet - will be created by database trigger');
           }
 
           // Store user data locally
@@ -758,21 +1157,8 @@ export class AuthService {
             .single();
 
           if (profileError && profileError.code === 'PGRST116') {
-            // User profile doesn't exist, create it
-            console.log('Creating user profile for OAuth user');
-            const { error: createError } = await supabase
-              .from('user_profiles')
-              .insert({
-                user_id: data.session.user.id,
-                email: data.session.user.email!,
-                full_name: data.session.user.user_metadata?.full_name || null,
-                avatar_url: data.session.user.user_metadata?.avatar_url || null,
-                sensory_mode: 'low',
-              });
-
-            if (createError) {
-              console.error('Error creating user profile:', createError);
-            }
+            // User profile doesn't exist - let the database trigger handle it
+            console.log('User profile does not exist yet - will be created by database trigger');
           }
 
           // Store user data locally

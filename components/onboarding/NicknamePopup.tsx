@@ -1,7 +1,8 @@
 import { PaginationButton } from '@/components/ui/OptionsButton';
 import { PopupBg } from '@/components/ui/PopupBg';
 import { useViewport } from '@/hooks/useViewport';
-import React, { useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
 interface NicknamePopupProps {
@@ -20,13 +21,43 @@ export const NicknamePopup: React.FC<NicknamePopupProps> = ({
   defaultNickname = 'Alex'
 }) => {
   const [nickname, setNickname] = useState(defaultNickname);
+  const [isLoading, setIsLoading] = useState(true);
   const { getResponsiveSize } = useViewport();
+
+  // Load extracted nickname from AsyncStorage when component mounts
+  useEffect(() => {
+    const loadExtractedNickname = async () => {
+      try {
+        const extractedNickname = await AsyncStorage.getItem('extractedNickname');
+        if (extractedNickname) {
+          console.log('Loaded extracted nickname:', extractedNickname);
+          setNickname(extractedNickname);
+        } else {
+          console.log('No extracted nickname found, using default:', defaultNickname);
+          setNickname(defaultNickname);
+        }
+      } catch (error) {
+        console.error('Error loading extracted nickname:', error);
+        setNickname(defaultNickname);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    if (visible) {
+      loadExtractedNickname();
+    }
+  }, [visible, defaultNickname]);
 
   const handleNext = () => {
     if (nickname.trim()) {
       onNext(nickname.trim());
     }
   };
+
+  if (isLoading) {
+    return null; // Don't render until nickname is loaded
+  }
 
   return (
     <PopupBg

@@ -4,7 +4,7 @@ import Svg, { Path } from 'react-native-svg';
 
 interface ThemeDropdownProps {
   currentTheme: 'calm' | 'highEnergy' | 'normal' | 'relax';
-  onThemeChange: (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => void;
+  onThemeChange: (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => void | Promise<void>;
   colors: any;
 }
 
@@ -80,8 +80,8 @@ export const ThemeDropdown: React.FC<ThemeDropdownProps> = ({
                   styles.option,
                   theme.key === currentTheme && { backgroundColor: colors.buttonBackground + '13' }
                 ]}
-                onPress={() => {
-                  onThemeChange(theme.key);
+                onPress={async () => {
+                  await onThemeChange(theme.key);
                   setIsOpen(false);
                 }}
               >

@@ -28,6 +28,7 @@ import { SensoryColors } from '@/constants/Colors';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import { detectVisitType, getWelcomeMessage, shouldShowWelcomeMessage, updateVisitData } from '@/utils/visitTypeDetector';
 
 interface FeatureItem {
   id: string;
@@ -61,6 +62,11 @@ export default function HomeScreen() {
   const [showModePopup, setShowModePopup] = useState(false);
   const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
 
+  // Welcome message state
+  const [welcomeMessage, setWelcomeMessage] = useState<string>('');
+  const [showWelcomeMessage, setShowWelcomeMessage] = useState(false);
+  const [userData, setUserData] = useState<any>(null);
+
   const { mode, setMode } = useSensoryMode();
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -89,6 +95,135 @@ export default function HomeScreen() {
   useEffect(() => {
     resetStack();
   }, [resetStack]);
+
+  // Load user data and detect visit type
+  const loadUserDataAndDetectVisit = async () => {
+    try {
+      console.log('🔄 LOADING USER DATA: Attempting to get current user data');
+      const currentUser = await AuthService.getCurrentUser();
+      
+      console.log('=== INDEX.TSX: CURRENT USER STRUCTURE ===');
+      console.log('🔍 CURRENT USER OBJECT:', {
+        id: currentUser?.id,
+        user_id: currentUser?.user_id,
+        email: currentUser?.email,
+        hasProfile: !!currentUser?.profile,
+        hasSettings: !!currentUser?.settings,
+        profileSettings: currentUser?.profile?.settings,
+        directSettings: currentUser?.settings
+      });
+      
+      console.log('⚠️ NOTE: Profile data is merged into currentUser object');
+      console.log('   - currentUser.id = auth.users.id');
+      console.log('   - currentUser.user_id = user_profiles.user_id (same as id)');
+      console.log('   - currentUser.settings = user_profiles.settings (merged)');
+      console.log('   - currentUser.profile = full profile object');
+      
+      console.log('✅ USER DATA LOADED: Current user data:', currentUser);
+      
+      if (currentUser) {
+        setUserData(currentUser);
+        
+        // Detect visit type
+        const visitData = detectVisitType(currentUser);
+        console.log('Visit type detected:', visitData);
+        
+        // === TEST 2: Nickname Loading on Restart ===
+        console.log('=== TEST 2: Nickname Loading on Restart ===');
+        // Trust the database - use the nickname stored in settings
+        let nickname = currentUser.profile?.settings?.nickname || currentUser.full_name || 'there';
+        
+        console.log('Nickname resolution:', {
+          'userId': currentUser.id,
+          'profileExists': !!currentUser.profile,
+          'settings.nickname': currentUser.profile?.settings?.nickname,
+          'auth.full_name': currentUser.full_name,
+          'final_nickname': nickname
+        });
+        
+        if (currentUser.profile?.settings?.nickname) {
+          console.log('✅ SUCCESS: Using nickname from profile settings:', nickname);
+        } else if (currentUser.full_name) {
+          console.log('⚠️ FALLBACK: Using auth user full_name:', nickname);
+        } else {
+          console.log('❌ DEFAULT: No nickname data found, using default');
+        }
+        
+        // Generate welcome message
+        const message = getWelcomeMessage(visitData, nickname);
+        setWelcomeMessage(message);
+        
+        // Check if should show welcome message
+        const shouldShow = await shouldShowWelcomeMessage(currentUser.id);
+        setShowWelcomeMessage(shouldShow);
+        
+        // === TEST 3: Mode Persistence on Restart ===
+        console.log('=== TEST 3: Mode Persistence on Restart ===');
+        // Trust the database - use the mode stored in settings
+        const savedMode = currentUser.profile?.settings?.mode || 'normal';
+        
+        console.log('🔍 MODE RESOLUTION FROM DATABASE:', {
+          'settings.mode': currentUser.profile?.settings?.mode,
+          'savedMode': savedMode,
+          'currentMode': mode,
+          'modeChange': mode !== savedMode ? `${mode} → ${savedMode}` : 'no change'
+        });
+        
+        if (currentUser.profile?.settings?.mode) {
+          console.log('✅ SUCCESS: Using saved mode from profile settings:', savedMode);
+        } else {
+          console.log('❌ DEFAULT: No saved mode found, using default:', savedMode);
+        }
+        
+        // Apply the saved mode to ensure persistence
+        console.log('🔍 APPLYING SAVED MODE TO UI:', {
+          previousMode: mode,
+          newMode: savedMode,
+          willChange: mode !== savedMode
+        });
+        setMode(savedMode as 'calm' | 'highEnergy' | 'normal' | 'relax');
+        console.log('✅ SUCCESS: Applied saved mode to UI:', savedMode);
+        
+        // Update visit data in database
+        console.log('🔄 UPDATING VISIT DATA: Attempting to update visit data for user:', currentUser.id);
+        const updatedUserData = updateVisitData(currentUser);
+                 // Always use the authenticated user's ID for profile operations
+         const result = await AuthService.updateUserProfile(currentUser.id, {
+           settings: updatedUserData.settings
+         });
+        
+        if (result.success) {
+          console.log('✅ VISIT DATA UPDATED: Visit data updated for user:', currentUser.id);
+                 } else {
+           console.error('❌ VISIT DATA UPDATE FAILED:', {
+             error: result.error,
+             message: result.error?.message,
+             code: result.error?.code
+           });
+           
+           // Handle specific database errors
+           if (result.error?.code === 'DUPLICATE_PROFILE') {
+             console.error('🚨 VISIT DATA ERROR: Profile already exists - this should not happen with proper flow');
+           } else if (result.error?.code === 'USER_NOT_FOUND') {
+             console.error('🚨 VISIT DATA ERROR: User does not exist in auth.users - check authentication');
+           } else if (result.error?.code === 'MISSING_REQUIRED_FIELD') {
+             console.error('🚨 VISIT DATA ERROR: Missing required field - check user data');
+           }
+           
+           // Don't fail the entire function if visit data update fails
+           console.log('⚠️ CONTINUING: Continuing without visit data update');
+         }
+      } else {
+        console.log('❌ NO USER: No authenticated user found');
+      }
+    } catch (error) {
+      console.error('❌ LOAD USER DATA EXCEPTION: Error loading user data and detecting visit:', {
+        error: error,
+        message: error?.message,
+        stack: error?.stack
+      });
+    }
+  };
 
   const [features, setFeatures] = useState<FeatureItem[]>([
     {
@@ -268,15 +403,82 @@ export default function HomeScreen() {
 
   const checkOnboardingStatus = async () => {
     try {
-      const completed = await AsyncStorage.getItem('hasCompletedOnboarding');
-      if (!completed) {
-        // Start onboarding flow
+      // First check if user is authenticated
+      const currentUser = await AuthService.getCurrentUser();
+      console.log('Checking onboarding status for user:', currentUser);
+      
+      if (!currentUser) {
+        // No user logged in, don't show onboarding
+        console.log('No user logged in, skipping onboarding');
+        setHasCompletedOnboarding(true);
+        return;
+      }
+
+      // Check if user has completed onboarding in their profile
+      const hasCompletedInProfile = currentUser.profile?.settings?.hasCompletedOnboarding;
+      let hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
+      
+      console.log('Onboarding status check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        userSettings: currentUser.profile?.settings
+      });
+      
+      // For testing: Clear AsyncStorage if profile settings are empty
+      if (!hasCompletedInProfile && hasCompletedInStorage === 'true') {
+        console.log('Clearing AsyncStorage for testing - profile has no onboarding data');
+        await AsyncStorage.removeItem('hasCompletedOnboarding');
+        console.log('AsyncStorage cleared, will show onboarding');
+        // Re-check AsyncStorage after clearing
+        hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
+        console.log('AsyncStorage after clearing:', hasCompletedInStorage);
+      }
+      
+      // Check if onboarding is completed in either place
+      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      
+      console.log('Final onboarding check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        isOnboardingCompleted
+      });
+      
+      if (!isOnboardingCompleted) {
+        // First-time user, show onboarding
+        console.log('First-time user detected, showing onboarding');
+        
+        // Extract nickname from user's email
+        const userEmail = currentUser.email;
+        const extractedNickname = await AsyncStorage.getItem('extractedNickname');
+        
+        // If no extracted nickname in AsyncStorage, extract from email
+        let defaultNickname = extractedNickname;
+        if (!defaultNickname && userEmail) {
+          // Import the name extractor utility
+          const { extractNameFromEmail } = await import('../../utils/nameExtractor');
+          const nameResult = extractNameFromEmail(userEmail);
+          defaultNickname = nameResult.displayName;
+          console.log('Extracted nickname from email:', defaultNickname);
+        }
+        
+        // Fallback to 'Alex' if no nickname found
+        defaultNickname = defaultNickname || 'Alex';
+        
+        console.log('Using nickname for onboarding:', defaultNickname);
+        setOnboardingData(prev => ({ ...prev, nickname: defaultNickname }));
         setShowNicknamePopup(true);
       } else {
+        // User has completed onboarding
+        console.log('User has completed onboarding, skipping');
         setHasCompletedOnboarding(true);
+        // Load user data and detect visit type after onboarding is complete
+        await loadUserDataAndDetectVisit();
       }
     } catch (error) {
       console.error('Error checking onboarding status:', error);
+      // Default to showing onboarding if there's an error
+      console.log('Error occurred, defaulting to show onboarding');
+      setShowNicknamePopup(true);
     }
   };
 
@@ -288,8 +490,11 @@ export default function HomeScreen() {
   };
 
   const handleNicknameSkip = () => {
+    console.log('User skipped nickname setup, completing onboarding');
     setShowNicknamePopup(false);
-    setShowEnergyPopup(true);
+    // Complete onboarding immediately without going through other steps
+    // The nickname should already be set from the popup or extracted name
+    completeOnboarding();
   };
 
   const handleEnergyNext = (energyLevel: number) => {
@@ -304,8 +509,20 @@ export default function HomeScreen() {
   };
 
   const handleModeSelect = (modeId: string) => {
-    setOnboardingData(prev => ({ ...prev, mode: modeId }));
+    
+    onboardingData.mode = modeId;
+    setOnboardingData(prev => {
+      const newData = { ...prev, mode: modeId };
+      console.log('🔍 UPDATED ONBOARDING DATA:', newData);
+      return newData;
+    });
+    
+    // Immediately apply the mode to change UI
+    console.log('🔍 APPLYING MODE TO UI:', modeId);
+    setMode(modeId as 'calm' | 'highEnergy' | 'normal' | 'relax');
     setShowModePopup(false);
+    
+    console.log('🔍 CALLING COMPLETE ONBOARDING');
     completeOnboarding();
   };
 
@@ -318,10 +535,78 @@ export default function HomeScreen() {
     try {
       await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
       await AsyncStorage.setItem('onboardingData', JSON.stringify(onboardingData));
+      
+      // Store nickname, mode, and onboarding completion in database
+      const currentUser = await AuthService.getCurrentUser();
+      console.log('=== ONBOARDING COMPLETION TEST ===');
+      console.log('Current user for onboarding completion:', currentUser);
+      
+      if (currentUser) {
+        const userId = currentUser.id;
+        console.log('=== TEST 1: Nickname and Mode Saving ===');
+        
+        // Ensure we have a nickname - use the one from onboarding data or fallback
+        const nicknameToSave = onboardingData.nickname || 'there';
+        
+        console.log('Saving onboarding data:', {
+          userId,
+          nickname: onboardingData.nickname,
+          mode: onboardingData.mode,
+          nicknameToSave: nicknameToSave
+        });
+        
+                 // Trust the database constraints - let it handle the insert/update logic
+         // Always use the authenticated user's ID (which is currentUser.id)
+         const result = await AuthService.updateUserProfile(currentUser.id, {
+          settings: {
+            nickname: nicknameToSave,
+            mode: onboardingData.mode,
+            hasCompletedOnboarding: true,
+            onboardingCompletedAt: new Date().toISOString(),
+          }
+        });
+        
+        if (result.success) {
+          console.log('✅ ONBOARDING SUCCESS: Completed and stored in database:', {
+            nickname: onboardingData.nickname,
+            mode: onboardingData.mode
+          });
+          
+                  // Apply the selected mode to the home screen
+        if (onboardingData.mode) {
+          console.log('🔍 APPLYING ONBOARDING MODE TO HOME SCREEN:', {
+            onboardingMode: onboardingData.mode,
+            currentMode: mode,
+            modeChange: `${mode} → ${onboardingData.mode}`
+          });
+          setMode(onboardingData.mode as 'calm' | 'highEnergy' | 'normal' | 'relax');
+          console.log('✅ SUCCESS: Applied onboarding mode to home screen:', onboardingData.mode);
+        } else {
+          console.log('⚠️ NO ONBOARDING MODE: No mode to apply from onboarding data');
+        }
+                 } else {
+           console.error('❌ ONBOARDING FAILED: Failed to update user profile:', result.error);
+           
+           // Handle specific database errors
+           if (result.error?.code === 'DUPLICATE_PROFILE') {
+             console.error('🚨 ONBOARDING ERROR: Profile already exists - this should not happen with proper flow');
+           } else if (result.error?.code === 'USER_NOT_FOUND') {
+             console.error('🚨 ONBOARDING ERROR: User does not exist in auth.users - check signup flow');
+           } else if (result.error?.code === 'MISSING_REQUIRED_FIELD') {
+             console.error('🚨 ONBOARDING ERROR: Missing required field - check email and user_id');
+           }
+         }
+      } else {
+        console.log('❌ NO USER: No current user found for onboarding completion');
+      }
+      
       setHasCompletedOnboarding(true);
       setShowEnergyPopup(false);
+      
+      // Load user data to refresh displayed information
+      await loadUserDataAndDetectVisit();
     } catch (error) {
-      console.error('Error saving onboarding data:', error);
+      console.error('❌ ONBOARDING EXCEPTION: Error saving onboarding data:', error);
     }
   };
 
@@ -343,8 +628,68 @@ export default function HomeScreen() {
     }
   };
 
-  const handleThemeChange = (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => {
+  const handleThemeChange = async (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => {
+    console.log('=== DROPDOWN THEME CHANGE ===');
+    console.log('🔍 USER CHANGED THEME TO:', theme);
+    console.log('🔍 CURRENT MODE STATE:', mode);
+    console.log('🔍 CURRENT ONBOARDING DATA:', onboardingData);
+    
+    // Update local state first
+    console.log('🔍 UPDATING LOCAL MODE STATE');
     setMode(theme);
+    
+    // Fix Mode Selection and Persistence: Update the row in user_profiles for that user_id
+    try {
+      const currentUser = await AuthService.getCurrentUser();
+      console.log('🔍 CURRENT USER FOR THEME UPDATE:', {
+        id: currentUser?.id,
+        hasProfile: !!currentUser?.profile,
+        currentSettings: currentUser?.profile?.settings,
+        currentMode: currentUser?.profile?.settings?.mode
+      });
+      
+      if (currentUser) {
+        console.log('🔍 UPDATING PROFILE FOR USER:', currentUser.id);
+        
+        // Get current settings to preserve other data
+        const currentSettings = currentUser.profile?.settings || {};
+        const updatedSettings = {
+          ...currentSettings,
+          mode: theme, // Save the selected mode
+        };
+        
+        console.log('🔍 SETTINGS UPDATE:', {
+          previousSettings: currentSettings,
+          updatedSettings: updatedSettings,
+          modeChange: `${currentSettings.mode} → ${theme}`
+        });
+        
+        // Always use the authenticated user's ID for profile operations
+        const result = await AuthService.updateUserProfile(currentUser.id, {
+          settings: updatedSettings
+        });
+        
+        if (result.success) {
+          console.log('✅ SUCCESS: Mode saved to database:', theme);
+          console.log('✅ DATABASE UPDATE COMPLETE');
+        } else {
+          console.error('❌ ERROR: Failed to save mode to database:', result.error);
+          
+          // Handle specific database errors
+          if (result.error?.code === 'DUPLICATE_PROFILE') {
+            console.error('🚨 THEME ERROR: Profile already exists - this should not happen with proper flow');
+          } else if (result.error?.code === 'USER_NOT_FOUND') {
+            console.error('🚨 THEME ERROR: User does not exist in auth.users - check authentication');
+          } else if (result.error?.code === 'MISSING_REQUIRED_FIELD') {
+            console.error('🚨 THEME ERROR: Missing required field - check user data');
+          }
+        }
+      } else {
+        console.error('❌ NO USER: No current user found for theme update');
+      }
+    } catch (error) {
+      console.error('❌ ERROR: Error saving mode to database:', error);
+    }
   };
 
   const handleSearch = (query: string) => {
@@ -450,7 +795,7 @@ export default function HomeScreen() {
         <View style={{ flex: 1 }} />
         <ThemeDropdown 
           currentTheme={mode}
-          onThemeChange={setMode}
+          onThemeChange={handleThemeChange}
           colors={colors}
         />
         <TouchableOpacity 
@@ -475,6 +820,23 @@ export default function HomeScreen() {
           />
         </View>
       </View>
+
+      {/* Welcome Message */}
+      {showWelcomeMessage && welcomeMessage && (
+        <View style={styles.welcomeContainer}>
+          <Text style={[styles.welcomeMessage, { color: colors.textSecondary }]}>
+            {welcomeMessage}
+          </Text>
+        </View>
+      )}
+      
+      {/* Debug: Show welcome message status
+      {__DEV__ && (
+        <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
+          <Text>Debug - showWelcomeMessage: {showWelcomeMessage.toString()}</Text>
+          <Text>Debug - welcomeMessage: {welcomeMessage}</Text>
+        </View>
+      )} */}
 
       {/* Today's Focus Card */}
       <View style={[styles.focusCard, { backgroundColor: colors.surface }]}>  
@@ -868,5 +1230,19 @@ const styles = StyleSheet.create({
   },
   chevronButton: {
     padding: 5, // Added padding to make touch target larger
+  },
+  welcomeContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    backgroundColor: '#f0f9eb', // Light green background
+    borderRadius: 12,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  welcomeMessage: {
+    fontSize: 14,
+    fontWeight: '500',
+    textAlign: 'center',
   },
 });
