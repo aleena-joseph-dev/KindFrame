@@ -25,21 +25,21 @@
 
 ### **Task 4: Google Calendar Integration** ✅ **COMPLETED**
 - [x] **Placement**: Calendar Screen (Home → Menu → Calendar)
-- [x] **Trigger**: First time user opens Calendar screen
-- [x] **UI Prompt**: "Sync your Google Calendar to see events here. Sync now?"
-- [x] **Actions**: "Connect" (OAuth initiation), "Later" (dismiss temporarily)
+- [x] **Trigger**: Sync button in top HUD
+- [x] **UI**: "Sync" button in top bar
+- [x] **Actions**: Direct OAuth initiation on button click
 - [x] **OAuth Setup**: Google Calendar API integration
 - [x] **Database**: Store calendar sync status and tokens
-- [x] **UI Components**: Calendar sync popup and status indicators
+- [x] **UI Components**: Sync button in TopBar component
 
 ### **Task 5: Google Keep/Notes Integration** ✅ **COMPLETED**
 - [x] **Placement**: Notes Screen (Home → Menu → Notes)
-- [x] **Trigger**: User creates their third note locally
-- [x] **UI Prompt**: "Want to sync your notes with Google Keep/Notes for easy access? Connect now."
-- [x] **Actions**: "Connect", "Later"
+- [x] **Trigger**: Sync button in top HUD
+- [x] **UI**: "Sync" button in top bar
+- [x] **Actions**: Direct OAuth initiation on button click
 - [x] **OAuth Setup**: Google Keep API integration
 - [x] **Database**: Store notes sync status and tokens
-- [x] **UI Components**: Notes sync popup and status indicators
+- [x] **UI Components**: Sync button in TopBar component
 
 ### **Task 6: Implementation Details**
 - [ ] **OAuth flow setup** for Google APIs

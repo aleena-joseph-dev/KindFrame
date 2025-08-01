@@ -14,9 +14,12 @@ interface TopBarProps {
   onBack?: () => void;
   onInfo?: () => void;
   showSettings?: boolean;
+  showSync?: boolean;
+  onSync?: () => void;
+  syncLoading?: boolean;
 }
 
-export function TopBar({ title, onBack, onInfo, showSettings = false }: TopBarProps) {
+export function TopBar({ title, onBack, onInfo, showSettings = false, showSync = false, onSync, syncLoading = false }: TopBarProps) {
   const { mode } = useSensoryMode();
   const colors = SensoryColors[mode];
   const router = useRouter();
@@ -99,33 +102,55 @@ export function TopBar({ title, onBack, onInfo, showSettings = false }: TopBarPr
           </TouchableOpacity>
         )}
       </View>
-      {/* Right side - Settings/Logout button */}
-      <TouchableOpacity
-        style={[
-          styles.sideButton,
-          showSettings && { backgroundColor: 'rgba(255, 0, 0, 0.1)' } // Add red background for debugging
-        ]}
-        onPress={() => {
-          console.log('Settings button clicked, showSettings:', showSettings);
-          if (showSettings) {
-            handleLogout();
-          }
-        }}
-        accessibilityLabel={showSettings ? "Settings" : ""}
-        accessibilityRole={showSettings ? "button" : undefined}
-        accessibilityHint={showSettings ? "Open settings and logout options" : undefined}
-        activeOpacity={0.7}
-        accessible={showSettings}
-        accessibilityLiveRegion="polite"
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        {showSettings && (
-          <>
-            <SettingsIcon size={24} color={colors.text} />
-            <Text style={{ fontSize: 8, color: 'red' }}>LOGOUT</Text>
-          </>
-        )}
-      </TouchableOpacity>
+      {/* Right side - Sync button or Settings/Logout button */}
+      {showSync ? (
+        <TouchableOpacity
+          style={[
+            styles.sideButton,
+            { backgroundColor: colors.buttonBackground }
+          ]}
+          onPress={onSync}
+          disabled={syncLoading}
+          accessibilityLabel="Sync"
+          accessibilityRole="button"
+          accessibilityHint="Sync with Google services"
+          activeOpacity={0.7}
+          accessible={true}
+          accessibilityLiveRegion="polite"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <Text style={[styles.syncButtonText, { color: colors.buttonText }]}>
+            {syncLoading ? 'Syncing...' : 'Sync'}
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[
+            styles.sideButton,
+            showSettings && { backgroundColor: 'rgba(255, 0, 0, 0.1)' } // Add red background for debugging
+          ]}
+          onPress={() => {
+            console.log('Settings button clicked, showSettings:', showSettings);
+            if (showSettings) {
+              handleLogout();
+            }
+          }}
+          accessibilityLabel={showSettings ? "Settings" : ""}
+          accessibilityRole={showSettings ? "button" : undefined}
+          accessibilityHint={showSettings ? "Open settings and logout options" : undefined}
+          activeOpacity={0.7}
+          accessible={showSettings}
+          accessibilityLiveRegion="polite"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          {showSettings && (
+            <>
+              <SettingsIcon size={24} color={colors.text} />
+              <Text style={{ fontSize: 8, color: 'red' }}>LOGOUT</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -166,5 +191,10 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
+  },
+  syncButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 }); 

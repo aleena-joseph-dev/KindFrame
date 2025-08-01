@@ -17,6 +17,7 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { googleKeepService } from '@/services/googleKeepService';
 
 interface Note {
   id: string;
@@ -44,8 +45,7 @@ export default function NotesScreen() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
   const [newNoteCategory, setNewNoteCategory] = useState<'personal' | 'work' | 'ideas' | 'journal' | 'learning' | 'other'>('personal');
-  const [showNotesSyncPopup, setShowNotesSyncPopup] = useState(false);
-  const [hasShownNotesSync, setHasShownNotesSync] = useState(false);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -99,60 +99,41 @@ export default function NotesScreen() {
     setNewNoteContent('');
     setNewNoteCategory('personal');
     setShowAddNote(false);
-
-    // Check if this is the third note and show sync popup
-    checkNotesSyncStatus(updatedNotes.length);
   };
 
-  const checkNotesSyncStatus = async (notesCount: number) => {
+  const handleNotesSync = async () => {
     try {
-      console.log('🔍 CHECKING NOTES SYNC STATUS...');
-      console.log('🔍 NOTES COUNT:', notesCount);
+      setSyncLoading(true);
+      console.log('🔗 INITIATING GOOGLE KEEP SYNC...');
       
-      // Check if we've already shown the popup
-      const hasShown = await AsyncStorage.getItem('has_shown_notes_sync');
-      if (hasShown === 'true') {
-        console.log('✅ ALREADY SHOWN: Notes sync popup already shown');
-        setHasShownNotesSync(true);
-        return;
+      const success = await googleKeepService.connect();
+      
+      if (success) {
+        console.log('✅ SUCCESS: Google Keep synced successfully');
+        Alert.alert(
+          'Notes Synced!',
+          'Your Google Keep notes are now connected. You can view and manage your notes here.',
+          [{ text: 'OK' }]
+        );
+        // Reload notes to include Google Keep notes
+        await loadNotes();
+      } else {
+        console.log('❌ FAILED: Google Keep sync failed');
+        Alert.alert(
+          'Sync Failed',
+          'Unable to sync with Google Keep. Please try again later.',
+          [{ text: 'OK' }]
+        );
       }
-
-      // Show popup on third note
-      if (notesCount === 3) {
-        console.log('🔗 SHOWING NOTES SYNC POPUP: User created third note');
-        setShowNotesSyncPopup(true);
-      }
     } catch (error) {
-      console.error('❌ ERROR: Error checking notes sync status:', error);
-    }
-  };
-
-  const handleNotesSyncConnect = async () => {
-    try {
-      console.log('✅ NOTES SYNC CONNECTED: User connected Google Keep');
-      
-      // Mark as shown
-      await AsyncStorage.setItem('has_shown_notes_sync', 'true');
-      setHasShownNotesSync(true);
-      setShowNotesSyncPopup(false);
-      
-      // Reload notes to include Google Keep notes
-      await loadNotes();
-    } catch (error) {
-      console.error('❌ ERROR: Error handling notes sync connect:', error);
-    }
-  };
-
-  const handleNotesSyncLater = async () => {
-    try {
-      console.log('⏰ NOTES SYNC LATER: User postponed notes sync');
-      
-      // Mark as shown
-      await AsyncStorage.setItem('has_shown_notes_sync', 'true');
-      setHasShownNotesSync(true);
-      setShowNotesSyncPopup(false);
-    } catch (error) {
-      console.error('❌ ERROR: Error handling notes sync later:', error);
+      console.error('❌ ERROR: Google Keep sync error:', error);
+      Alert.alert(
+        'Sync Error',
+        'An error occurred while syncing with Google Keep. Please try again.',
+        [{ text: 'OK' }]
+      );
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -239,11 +220,17 @@ export default function NotesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Notes" onBack={() => {
-        console.log('Notes back button pressed');
-        console.log('Current navigation stack:', navigationStack);
-        handleBack('menu');
-      }} showSettings={true} />
+      <TopBar 
+        title="Notes" 
+        onBack={() => {
+          console.log('Notes back button pressed');
+          console.log('Current navigation stack:', navigationStack);
+          handleBack('menu');
+        }} 
+        showSync={true}
+        onSync={handleNotesSync}
+        syncLoading={syncLoading}
+      />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -479,13 +466,6 @@ export default function NotesScreen() {
           </View>
         </View>
       )}
-
-      {/* Google Keep Sync Popup */}
-      <NotesSyncPopup
-        visible={showNotesSyncPopup}
-        onClose={handleNotesSyncLater}
-        onConnect={handleNotesSyncConnect}
-      />
     </SafeAreaView>
   );
 }
