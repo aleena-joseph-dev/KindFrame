@@ -17,7 +17,6 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { googleKeepService } from '@/services/googleKeepService';
 
 interface Note {
   id: string;
@@ -45,7 +44,6 @@ export default function NotesScreen() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
   const [newNoteCategory, setNewNoteCategory] = useState<'personal' | 'work' | 'ideas' | 'journal' | 'learning' | 'other'>('personal');
-  const [syncLoading, setSyncLoading] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -99,42 +97,6 @@ export default function NotesScreen() {
     setNewNoteContent('');
     setNewNoteCategory('personal');
     setShowAddNote(false);
-  };
-
-  const handleNotesSync = async () => {
-    try {
-      setSyncLoading(true);
-      console.log('🔗 INITIATING GOOGLE KEEP SYNC...');
-      
-      const success = await googleKeepService.connect();
-      
-      if (success) {
-        console.log('✅ SUCCESS: Google Keep synced successfully');
-        Alert.alert(
-          'Notes Synced!',
-          'Your Google Keep notes are now connected. You can view and manage your notes here.',
-          [{ text: 'OK' }]
-        );
-        // Reload notes to include Google Keep notes
-        await loadNotes();
-      } else {
-        console.log('❌ FAILED: Google Keep sync failed');
-        Alert.alert(
-          'Sync Failed',
-          'Unable to sync with Google Keep. Please try again later.',
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('❌ ERROR: Google Keep sync error:', error);
-      Alert.alert(
-        'Sync Error',
-        'An error occurred while syncing with Google Keep. Please try again.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setSyncLoading(false);
-    }
   };
 
   const handleUpdateNote = (noteId: string, updatedTitle: string, updatedContent: string) => {
@@ -220,17 +182,11 @@ export default function NotesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar 
-        title="Notes" 
-        onBack={() => {
-          console.log('Notes back button pressed');
-          console.log('Current navigation stack:', navigationStack);
-          handleBack('menu');
-        }} 
-        showSync={true}
-        onSync={handleNotesSync}
-        syncLoading={syncLoading}
-      />
+      <TopBar title="Notes" onBack={() => {
+        console.log('Notes back button pressed');
+        console.log('Current navigation stack:', navigationStack);
+        handleBack('menu');
+      }} showSettings={true} />
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>

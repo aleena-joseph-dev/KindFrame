@@ -26,6 +26,15 @@ export default function TabLayout() {
           default: {},
         }),
       }}>
+      {/* Temporarily comment out onboarding to test navigation */}
+      {/* <Tabs.Screen
+        name="onboarding"
+        options={{
+          title: 'Onboarding',
+          href: null, // Hide from tab bar
+          tabBarButton: () => null, // Hide from tab bar
+        }}
+      /> */}
       <Tabs.Screen
         name="index"
         options={{

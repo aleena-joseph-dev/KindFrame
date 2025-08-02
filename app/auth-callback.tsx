@@ -63,7 +63,7 @@ export default function AuthCallbackScreen() {
         
         if (result.success) {
           console.log('Notion authentication successful');
-          router.replace('/(tabs)');
+          router.replace('/onboarding');
         } else {
           console.error('Notion authentication failed:', result.error);
           Alert.alert(
@@ -84,7 +84,7 @@ export default function AuthCallbackScreen() {
         
         if (result.success) {
           console.log('Supabase OAuth authentication successful');
-          router.replace('/(tabs)');
+          router.replace('/onboarding');
         } else {
           console.error('Supabase OAuth authentication failed:', result.error);
           Alert.alert(
@@ -105,7 +105,7 @@ export default function AuthCallbackScreen() {
         
         if (result.success) {
           console.log('OAuth authentication successful');
-          router.replace('/(tabs)');
+          router.replace('/onboarding');
         } else {
           console.error('OAuth authentication failed:', result.error);
           Alert.alert(

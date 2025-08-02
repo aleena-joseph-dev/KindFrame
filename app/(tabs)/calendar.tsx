@@ -16,7 +16,6 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { googleCalendarService } from '@/services/googleCalendarService';
 
 interface CalendarEvent {
   id: string;
@@ -52,7 +51,6 @@ export default function CalendarScreen() {
   const [newEventDate, setNewEventDate] = useState('');
   const [newEventTime, setNewEventTime] = useState('');
   const [newEventType, setNewEventType] = useState<'task' | 'goal' | 'reminder' | 'event'>('event');
-  const [syncLoading, setSyncLoading] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -99,42 +97,6 @@ export default function CalendarScreen() {
       day: 'numeric',
       year: 'numeric'
     });
-  };
-
-  const handleCalendarSync = async () => {
-    try {
-      setSyncLoading(true);
-      console.log('🔗 INITIATING GOOGLE CALENDAR SYNC...');
-      
-      const success = await googleCalendarService.connect();
-      
-      if (success) {
-        console.log('✅ SUCCESS: Google Calendar synced successfully');
-        Alert.alert(
-          'Calendar Synced!',
-          'Your Google Calendar is now connected. You can view your events in the calendar.',
-          [{ text: 'OK' }]
-        );
-        // Reload events to include Google Calendar events
-        await loadEvents();
-      } else {
-        console.log('❌ FAILED: Google Calendar sync failed');
-        Alert.alert(
-          'Sync Failed',
-          'Unable to sync with Google Calendar. Please try again later.',
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('❌ ERROR: Google Calendar sync error:', error);
-      Alert.alert(
-        'Sync Error',
-        'An error occurred while syncing with Google Calendar. Please try again.',
-        [{ text: 'OK' }]
-      );
-    } finally {
-      setSyncLoading(false);
-    }
   };
 
   const getDaysInMonth = (date: Date): DayData[] => {
@@ -258,13 +220,7 @@ export default function CalendarScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar 
-        title="Calendar" 
-        onBack={() => handleBack()} 
-        showSync={true}
-        onSync={handleCalendarSync}
-        syncLoading={syncLoading}
-      />
+      <TopBar title="Calendar" onBack={() => handleBack()} showSettings={true} />
 
       {/* Month Navigation */}
       <View style={styles.monthContainer}>

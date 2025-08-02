@@ -1,12 +1,12 @@
 import React, { useEffect, useRef } from 'react';
 import Animated, {
-  Easing,
-  useAnimatedProps,
-  useSharedValue,
-  withDelay,
-  withRepeat,
-  withSequence,
-  withTiming
+    Easing,
+    useAnimatedProps,
+    useSharedValue,
+    withDelay,
+    withRepeat,
+    withSequence,
+    withTiming
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 
@@ -27,39 +27,16 @@ const LINE_Y_END = 18.5;
 const LINE_LENGTH = LINE_END_X - LINE_START_X;
 
 export default function AnimatedJotBoxIcon({ size = 24, isAnimating = false, isCompleted = false, color = '#64748B' }: AnimatedJotBoxIconProps) {
-  // Create shared values for each line
-  const line1 = useSharedValue(1);
-  const line2 = useSharedValue(1);
-  const line3 = useSharedValue(1);
-  const line4 = useSharedValue(1);
-  const line5 = useSharedValue(1);
-  
-  // Create animated props for each line
-  const animatedLine1Props = useAnimatedProps(() => ({
-    strokeDasharray: `${LINE_LENGTH}`,
-    strokeDashoffset: line1.value * LINE_LENGTH,
-  }));
-  const animatedLine2Props = useAnimatedProps(() => ({
-    strokeDasharray: `${LINE_LENGTH}`,
-    strokeDashoffset: line2.value * LINE_LENGTH,
-  }));
-  const animatedLine3Props = useAnimatedProps(() => ({
-    strokeDasharray: `${LINE_LENGTH}`,
-    strokeDashoffset: line3.value * LINE_LENGTH,
-  }));
-  const animatedLine4Props = useAnimatedProps(() => ({
-    strokeDasharray: `${LINE_LENGTH}`,
-    strokeDashoffset: line4.value * LINE_LENGTH,
-  }));
-  const animatedLine5Props = useAnimatedProps(() => ({
-    strokeDasharray: `${LINE_LENGTH}`,
-    strokeDashoffset: line5.value * LINE_LENGTH,
-  }));
-  
-  // Store lines in an array for easier access
-  const linesRef = useRef([line1, line2, line3, line4, line5]);
-  const animatedLinePropsRef = useRef([animatedLine1Props, animatedLine2Props, animatedLine3Props, animatedLine4Props, animatedLine5Props]);
-  
+  // Use refs to persist shared values and animated props arrays
+  const linesRef = useRef(Array.from({ length: NUM_LINES }, () => useSharedValue(1)));
+  const animatedLinePropsRef = useRef(
+    linesRef.current.map((line) =>
+      useAnimatedProps(() => ({
+        strokeDasharray: `${LINE_LENGTH}`,
+        strokeDashoffset: line.value * LINE_LENGTH,
+      }))
+    )
+  );
   const lightningOpacity = useSharedValue(1);
   const animatedLightningProps = useAnimatedProps(() => ({ opacity: lightningOpacity.value }));
 

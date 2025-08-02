@@ -1,13 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { EnergyPopup } from '@/components/onboarding/EnergyPopup';
-import { NicknamePopup } from '@/components/onboarding/NicknamePopup';
-import { OnboardingPopup } from '@/components/onboarding/OnboardingPopup';
 import AnimatedJotBoxIcon from '@/components/ui/AnimatedJotBoxIcon';
 import { CalendarIcon } from '@/components/ui/CalendarIcon';
 import { CheckIcon } from '@/components/ui/CheckIcon';
@@ -37,37 +33,20 @@ interface FeatureItem {
   isVisible: boolean;
 }
 
-interface OnboardingData {
-  nickname: string;
-  mode: string;
-  energyLevel: number;
-}
-
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
   const { addToStack, removeFromStack, getPreviousScreen, resetStack } = usePreviousScreen();
-  const [onboardingData, setOnboardingData] = useState<OnboardingData>({
-    nickname: 'Alex',
-    mode: 'normal',
-    energyLevel: 5,
-  });
+  const { mode, setMode, isLoading: modeLoading, refreshMode, loadModeForAuthenticatedUser } = useSensoryMode();
 
   // Loading state for splash
   const [loading, setLoading] = useState(true);
-
-  // Onboarding flow state
-  const [showNicknamePopup, setShowNicknamePopup] = useState(false);
-  const [showEnergyPopup, setShowEnergyPopup] = useState(false);
-  const [showModePopup, setShowModePopup] = useState(false);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(false);
 
   // Welcome message state
   const [welcomeMessage, setWelcomeMessage] = useState<string>('');
   const [showWelcomeMessage, setShowWelcomeMessage] = useState(false);
   const [userData, setUserData] = useState<any>(null);
 
-  const { mode, setMode } = useSensoryMode();
   const [searchQuery, setSearchQuery] = useState('');
 
   // Add these hooks here, before any conditional returns
@@ -157,32 +136,10 @@ export default function HomeScreen() {
         const shouldShow = await shouldShowWelcomeMessage(currentUser.id);
         setShowWelcomeMessage(shouldShow);
         
-        // === TEST 3: Mode Persistence on Restart ===
-        console.log('=== TEST 3: Mode Persistence on Restart ===');
-        // Trust the database - use the mode stored in settings
-        const savedMode = currentUser.profile?.settings?.mode || 'normal';
-        
-        console.log('🔍 MODE RESOLUTION FROM DATABASE:', {
-          'settings.mode': currentUser.profile?.settings?.mode,
-          'savedMode': savedMode,
-          'currentMode': mode,
-          'modeChange': mode !== savedMode ? `${mode} → ${savedMode}` : 'no change'
-        });
-        
-        if (currentUser.profile?.settings?.mode) {
-          console.log('✅ SUCCESS: Using saved mode from profile settings:', savedMode);
-        } else {
-          console.log('❌ DEFAULT: No saved mode found, using default:', savedMode);
-        }
-        
-        // Apply the saved mode to ensure persistence
-        console.log('🔍 APPLYING SAVED MODE TO UI:', {
-          previousMode: mode,
-          newMode: savedMode,
-          willChange: mode !== savedMode
-        });
-        setMode(savedMode as 'calm' | 'highEnergy' | 'normal' | 'relax');
-        console.log('✅ SUCCESS: Applied saved mode to UI:', savedMode);
+        // Load mode for authenticated user (but skip if user just completed onboarding)
+        console.log('🔄 LOADING MODE FOR AUTHENTICATED USER');
+        await loadModeForAuthenticatedUser();
+        console.log('✅ MODE LOADED: Mode loaded from SensoryModeContext:', mode);
         
         // Update visit data in database
         console.log('🔄 UPDATING VISIT DATA: Attempting to update visit data for user:', currentUser.id);
@@ -222,6 +179,13 @@ export default function HomeScreen() {
         message: error?.message,
         stack: error?.stack
       });
+      
+      // Check if it's an auth session missing error
+      if (error?.message?.includes('Auth session missing')) {
+        console.log('No auth session, redirecting to signin');
+        router.replace('/(auth)/signin');
+        return;
+      }
     }
   };
 
@@ -282,11 +246,11 @@ export default function HomeScreen() {
       }
     }
 
-    // Set loading to false and check onboarding status (always run this)
+    // Set loading to false and load user data
     setTimeout(() => {
       if (isMounted.current) {
         setLoading(false);
-        checkOnboardingStatus();
+        loadUserDataAndDetectVisit();
       }
     }, 1200);
 
@@ -401,215 +365,6 @@ export default function HomeScreen() {
     }, [])
   );
 
-  const checkOnboardingStatus = async () => {
-    try {
-      // First check if user is authenticated
-      const currentUser = await AuthService.getCurrentUser();
-      console.log('Checking onboarding status for user:', currentUser);
-      
-      if (!currentUser) {
-        // No user logged in, don't show onboarding
-        console.log('No user logged in, skipping onboarding');
-        setHasCompletedOnboarding(true);
-        return;
-      }
-
-      // Check if user has completed onboarding in their profile
-      const hasCompletedInProfile = currentUser.profile?.settings?.hasCompletedOnboarding;
-      let hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
-      
-      console.log('Onboarding status check:', {
-        hasCompletedInProfile,
-        hasCompletedInStorage,
-        userSettings: currentUser.profile?.settings
-      });
-      
-      // For testing: Clear AsyncStorage if profile settings are empty
-      if (!hasCompletedInProfile && hasCompletedInStorage === 'true') {
-        console.log('Clearing AsyncStorage for testing - profile has no onboarding data');
-        await AsyncStorage.removeItem('hasCompletedOnboarding');
-        console.log('AsyncStorage cleared, will show onboarding');
-        // Re-check AsyncStorage after clearing
-        hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
-        console.log('AsyncStorage after clearing:', hasCompletedInStorage);
-      }
-      
-      // Check if onboarding is completed in either place
-      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
-      
-      console.log('Final onboarding check:', {
-        hasCompletedInProfile,
-        hasCompletedInStorage,
-        isOnboardingCompleted
-      });
-      
-      if (!isOnboardingCompleted) {
-        // First-time user, show onboarding
-        console.log('First-time user detected, showing onboarding');
-        
-        // Extract nickname from user's email
-        const userEmail = currentUser.email;
-        const extractedNickname = await AsyncStorage.getItem('extractedNickname');
-        
-        // If no extracted nickname in AsyncStorage, extract from email
-        let defaultNickname = extractedNickname;
-        if (!defaultNickname && userEmail) {
-          // Import the name extractor utility
-          const { extractNameFromEmail } = await import('../../utils/nameExtractor');
-          const nameResult = extractNameFromEmail(userEmail);
-          defaultNickname = nameResult.displayName;
-          console.log('Extracted nickname from email:', defaultNickname);
-        }
-        
-        // Fallback to 'Alex' if no nickname found
-        defaultNickname = defaultNickname || 'Alex';
-        
-        console.log('Using nickname for onboarding:', defaultNickname);
-        setOnboardingData(prev => ({ ...prev, nickname: defaultNickname }));
-        setShowNicknamePopup(true);
-      } else {
-        // User has completed onboarding
-        console.log('User has completed onboarding, skipping');
-        setHasCompletedOnboarding(true);
-        // Load user data and detect visit type after onboarding is complete
-        await loadUserDataAndDetectVisit();
-      }
-    } catch (error) {
-      console.error('Error checking onboarding status:', error);
-      // Default to showing onboarding if there's an error
-      console.log('Error occurred, defaulting to show onboarding');
-      setShowNicknamePopup(true);
-    }
-  };
-
-  // --- Onboarding popup flow (swapped order) ---
-  const handleNicknameNext = (nickname: string) => {
-    setOnboardingData(prev => ({ ...prev, nickname }));
-    setShowNicknamePopup(false);
-    setShowEnergyPopup(true);
-  };
-
-  const handleNicknameSkip = () => {
-    console.log('User skipped nickname setup, completing onboarding');
-    setShowNicknamePopup(false);
-    // Complete onboarding immediately without going through other steps
-    // The nickname should already be set from the popup or extracted name
-    completeOnboarding();
-  };
-
-  const handleEnergyNext = (energyLevel: number) => {
-    setOnboardingData(prev => ({ ...prev, energyLevel }));
-    setShowEnergyPopup(false);
-    setShowModePopup(true);
-  };
-
-  const handleEnergySkip = () => {
-    setShowEnergyPopup(false);
-    setShowModePopup(true);
-  };
-
-  const handleModeSelect = (modeId: string) => {
-    
-    onboardingData.mode = modeId;
-    setOnboardingData(prev => {
-      const newData = { ...prev, mode: modeId };
-      console.log('🔍 UPDATED ONBOARDING DATA:', newData);
-      return newData;
-    });
-    
-    // Immediately apply the mode to change UI
-    console.log('🔍 APPLYING MODE TO UI:', modeId);
-    setMode(modeId as 'calm' | 'highEnergy' | 'normal' | 'relax');
-    setShowModePopup(false);
-    
-    console.log('🔍 CALLING COMPLETE ONBOARDING');
-    completeOnboarding();
-  };
-
-  const handleModeSkip = () => {
-    setShowModePopup(false);
-    completeOnboarding();
-  };
-
-  const completeOnboarding = async () => {
-    try {
-      await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
-      await AsyncStorage.setItem('onboardingData', JSON.stringify(onboardingData));
-      
-      // Store nickname, mode, and onboarding completion in database
-      const currentUser = await AuthService.getCurrentUser();
-      console.log('=== ONBOARDING COMPLETION TEST ===');
-      console.log('Current user for onboarding completion:', currentUser);
-      
-      if (currentUser) {
-        const userId = currentUser.id;
-        console.log('=== TEST 1: Nickname and Mode Saving ===');
-        
-        // Ensure we have a nickname - use the one from onboarding data or fallback
-        const nicknameToSave = onboardingData.nickname || 'there';
-        
-        console.log('Saving onboarding data:', {
-          userId,
-          nickname: onboardingData.nickname,
-          mode: onboardingData.mode,
-          nicknameToSave: nicknameToSave
-        });
-        
-                 // Trust the database constraints - let it handle the insert/update logic
-         // Always use the authenticated user's ID (which is currentUser.id)
-         const result = await AuthService.updateUserProfile(currentUser.id, {
-          settings: {
-            nickname: nicknameToSave,
-            mode: onboardingData.mode,
-            hasCompletedOnboarding: true,
-            onboardingCompletedAt: new Date().toISOString(),
-          }
-        });
-        
-        if (result.success) {
-          console.log('✅ ONBOARDING SUCCESS: Completed and stored in database:', {
-            nickname: onboardingData.nickname,
-            mode: onboardingData.mode
-          });
-          
-                  // Apply the selected mode to the home screen
-        if (onboardingData.mode) {
-          console.log('🔍 APPLYING ONBOARDING MODE TO HOME SCREEN:', {
-            onboardingMode: onboardingData.mode,
-            currentMode: mode,
-            modeChange: `${mode} → ${onboardingData.mode}`
-          });
-          setMode(onboardingData.mode as 'calm' | 'highEnergy' | 'normal' | 'relax');
-          console.log('✅ SUCCESS: Applied onboarding mode to home screen:', onboardingData.mode);
-        } else {
-          console.log('⚠️ NO ONBOARDING MODE: No mode to apply from onboarding data');
-        }
-                 } else {
-           console.error('❌ ONBOARDING FAILED: Failed to update user profile:', result.error);
-           
-           // Handle specific database errors
-           if (result.error?.code === 'DUPLICATE_PROFILE') {
-             console.error('🚨 ONBOARDING ERROR: Profile already exists - this should not happen with proper flow');
-           } else if (result.error?.code === 'USER_NOT_FOUND') {
-             console.error('🚨 ONBOARDING ERROR: User does not exist in auth.users - check signup flow');
-           } else if (result.error?.code === 'MISSING_REQUIRED_FIELD') {
-             console.error('🚨 ONBOARDING ERROR: Missing required field - check email and user_id');
-           }
-         }
-      } else {
-        console.log('❌ NO USER: No current user found for onboarding completion');
-      }
-      
-      setHasCompletedOnboarding(true);
-      setShowEnergyPopup(false);
-      
-      // Load user data to refresh displayed information
-      await loadUserDataAndDetectVisit();
-    } catch (error) {
-      console.error('❌ ONBOARDING EXCEPTION: Error saving onboarding data:', error);
-    }
-  };
-
   const handleFeaturePress = (feature: string) => {
     if (feature === 'To-Do List') {
       router.push('/(tabs)/todo');
@@ -632,7 +387,6 @@ export default function HomeScreen() {
     console.log('=== DROPDOWN THEME CHANGE ===');
     console.log('🔍 USER CHANGED THEME TO:', theme);
     console.log('🔍 CURRENT MODE STATE:', mode);
-    console.log('🔍 CURRENT ONBOARDING DATA:', onboardingData);
     
     // Update local state first
     console.log('🔍 UPDATING LOCAL MODE STATE');
@@ -672,6 +426,10 @@ export default function HomeScreen() {
         if (result.success) {
           console.log('✅ SUCCESS: Mode saved to database:', theme);
           console.log('✅ DATABASE UPDATE COMPLETE');
+          
+          // Refresh the mode from the database to ensure consistency
+          await refreshMode();
+          console.log('✅ MODE REFRESHED: Mode refreshed from database after theme change');
         } else {
           console.error('❌ ERROR: Failed to save mode to database:', result.error);
           
@@ -689,6 +447,13 @@ export default function HomeScreen() {
       }
     } catch (error) {
       console.error('❌ ERROR: Error saving mode to database:', error);
+      
+      // Check if it's an auth session missing error
+      if (error?.message?.includes('Auth session missing')) {
+        console.log('No auth session during theme change, redirecting to signin');
+        router.replace('/(auth)/signin');
+        return;
+      }
     }
   };
 
@@ -829,14 +594,6 @@ export default function HomeScreen() {
           </Text>
         </View>
       )}
-      
-      {/* Debug: Show welcome message status
-      {__DEV__ && (
-        <View style={{ padding: 10, backgroundColor: '#f0f0f0' }}>
-          <Text>Debug - showWelcomeMessage: {showWelcomeMessage.toString()}</Text>
-          <Text>Debug - welcomeMessage: {welcomeMessage}</Text>
-        </View>
-      )} */}
 
       {/* Today's Focus Card */}
       <View style={[styles.focusCard, { backgroundColor: colors.surface }]}>  
@@ -931,27 +688,6 @@ export default function HomeScreen() {
           </TouchableOpacity>
         </View>
       </View>
-      {/* Onboarding Popups (unchanged) */}
-      <NicknamePopup
-        visible={showNicknamePopup}
-        onClose={() => setShowNicknamePopup(false)}
-        onNext={handleNicknameNext}
-        onSkip={handleNicknameSkip}
-        defaultNickname={onboardingData.nickname}
-      />
-      <EnergyPopup
-        visible={showEnergyPopup}
-        onClose={() => setShowEnergyPopup(false)}
-        onNext={handleEnergyNext}
-        onSkip={handleEnergySkip}
-        defaultEnergyLevel={onboardingData.energyLevel}
-      />
-      <OnboardingPopup
-        visible={showModePopup}
-        onClose={() => setShowModePopup(false)}
-        onSkip={handleModeSkip}
-        onModeSelect={handleModeSelect}
-      />
     </SafeAreaView>
   );
 }
