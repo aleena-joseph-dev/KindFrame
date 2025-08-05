@@ -230,10 +230,19 @@ export default function MusicScreen() {
     const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(scopes.join(' '))}&show_dialog=true`;
 
     if (Platform.OS === 'web') {
+      // Check for malformed URL before storing current location
+      const malformedUrl = 'www.googleapis.com/auth/drive.readonly%20https://www.googleapis.com/auth/drive.metadata.readonly';
+      if (window.location.href.includes(malformedUrl)) {
+        console.error('🔍 MALFORMED URL DETECTED in Spotify auth:', window.location.href);
+        alert('Malformed URL Detected: The OAuth URL is malformed. This indicates a scope encoding issue.');
+        return;
+      }
+      
       // Store the current URL to return to after auth
       sessionStorage.setItem('spotify_auth_return_url', window.location.href);
       
       // Navigate to Spotify auth
+      console.log('🔗 REDIRECTING TO SPOTIFY OAUTH:', authUrl);
       window.location.href = authUrl;
     } else {
       Alert.alert('Mobile Auth', 'Please implement mobile OAuth flow using WebView or deep linking.');
@@ -389,7 +398,15 @@ export default function MusicScreen() {
   useEffect(() => {
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const returnUrl = sessionStorage.getItem('spotify_auth_return_url');
-      if (returnUrl && window.location.href !== returnUrl) {
+              // Check for malformed URL before comparing
+        const malformedUrl = 'www.googleapis.com/auth/drive.readonly%20https://www.googleapis.com/auth/drive.metadata.readonly';
+        if (window.location.href.includes(malformedUrl)) {
+          console.error('🔍 MALFORMED URL DETECTED in Spotify return check:', window.location.href);
+          alert('Malformed URL Detected: The OAuth URL is malformed. This indicates a scope encoding issue.');
+          return;
+        }
+        
+        if (returnUrl && window.location.href !== returnUrl) {
         sessionStorage.removeItem('spotify_auth_return_url');
         // We're back from auth, check for token
         const hash = window.location.hash;
@@ -1268,14 +1285,22 @@ export default function MusicScreen() {
             {userPlaylists.length > 0 && (
               <View style={styles.section}>
                 <Text style={[styles.sectionTitle, { color: colors.text }]}>Your Playlists</Text>
-                {userPlaylists.map(playlist => renderPlaylist(playlist, true))}
+                {userPlaylists.map(playlist => (
+                  <View key={playlist.id}>
+                    {renderPlaylist(playlist, true)}
+                  </View>
+                ))}
               </View>
             )}
 
             {/* Default Playlists */}
             <View style={styles.section}>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Curated for You</Text>
-              {defaultPlaylists.map(playlist => renderPlaylist(playlist))}
+                              {defaultPlaylists.map(playlist => (
+                  <View key={playlist.id}>
+                    {renderPlaylist(playlist)}
+                  </View>
+                ))}
             </View>
           </>
         )}

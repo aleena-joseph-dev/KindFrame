@@ -1,16 +1,15 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  Dimensions,
-  Image,
-  Modal,
-  ScrollView,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    Dimensions,
+    Image,
+    Modal,
+    ScrollView,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { CameraIcon } from '../../components/ui/CameraIcon';
 import { FilmIcon } from '../../components/ui/FilmIcon';
@@ -20,6 +19,7 @@ import { StarIcon } from '../../components/ui/StarIcon';
 import { TopBar } from '../../components/ui/TopBar';
 import { SensoryColors } from '../../constants/Colors';
 import { useSensoryMode } from '../../contexts/SensoryModeContext';
+import { DataService } from '../../services/dataService';
 
 interface CoreMemory {
   id: string;
@@ -29,6 +29,13 @@ interface CoreMemory {
   date: string;
   emotions: string[];
   createdAt: string;
+  // Additional fields for database compatibility
+  memory_date?: string;
+  photo_url?: string;
+  tags?: string[];
+  importance_level?: number;
+  is_favorite?: boolean;
+  updated_at?: string;
 }
 
 type SortOption = 'newest' | 'oldest' | 'emotion';
@@ -108,23 +115,34 @@ export default function CoreMemoryScreen() {
 
   const loadMemories = async () => {
     try {
-      const stored = await AsyncStorage.getItem('coreMemories');
-      if (stored) {
-        setMemories(JSON.parse(stored));
+      const result = await DataService.getCoreMemories();
+      if (result.success && result.data) {
+        const dbMemories = result.data;
+        const convertedMemories = dbMemories.map(dbMemory => ({
+          id: dbMemory.id,
+          title: dbMemory.title,
+          description: dbMemory.description || '',
+          photoUri: dbMemory.photo_url,
+          date: dbMemory.memory_date || new Date(dbMemory.created_at).toISOString().split('T')[0],
+          emotions: dbMemory.tags || [],
+          createdAt: dbMemory.created_at,
+          memory_date: dbMemory.memory_date,
+          photo_url: dbMemory.photo_url,
+          tags: dbMemory.tags,
+          importance_level: dbMemory.importance_level,
+          is_favorite: dbMemory.is_favorite,
+          updated_at: dbMemory.updated_at
+        }));
+        setMemories(convertedMemories);
+      } else {
+        console.error('Error loading memories:', result.error);
       }
     } catch (error) {
       console.error('Error loading memories:', error);
     }
   };
 
-  const saveMemories = async (newMemories: CoreMemory[]) => {
-    try {
-      await AsyncStorage.setItem('coreMemories', JSON.stringify(newMemories));
-      setMemories(newMemories);
-    } catch (error) {
-      console.error('Error saving memories:', error);
-    }
-  };
+
 
   const pickImage = async () => {
     try {
@@ -144,34 +162,60 @@ export default function CoreMemoryScreen() {
     }
   };
 
-  const addMemory = () => {
+  const addMemory = async () => {
     if (!title.trim()) {
       Alert.alert('Error', 'Please add a title for your memory.');
       return;
     }
 
-    const newMemory: CoreMemory = {
-      id: Date.now().toString(),
-      title: title.trim(),
-      description: description.trim(),
-      photoUri,
-      date: selectedDate,
-      emotions: selectedEmotions,
-      createdAt: new Date().toISOString(),
-    };
+    try {
+      const result = await DataService.createCoreMemory({
+        title: title.trim(),
+        description: description.trim() || undefined,
+        memory_date: selectedDate,
+        photo_url: photoUri || undefined,
+        tags: selectedEmotions,
+        importance_level: 3, // Default importance level
+        is_favorite: false
+      });
 
-    const updatedMemories = [newMemory, ...memories];
-    saveMemories(updatedMemories);
-    
-    // Reset form
-    setTitle('');
-    setDescription('');
-    setPhotoUri('');
-    setSelectedDate(new Date().toISOString().split('T')[0]);
-    setSelectedEmotions([]);
-    setShowAddModal(false);
-    
-    Alert.alert('Success', 'Core memory added successfully!');
+      if (result.success && result.data) {
+        const dbMemory = result.data;
+        const newMemory: CoreMemory = {
+          id: dbMemory.id,
+          title: dbMemory.title,
+          description: dbMemory.description || '',
+          photoUri: dbMemory.photo_url,
+          date: dbMemory.memory_date || new Date(dbMemory.created_at).toISOString().split('T')[0],
+          emotions: dbMemory.tags || [],
+          createdAt: dbMemory.created_at,
+          memory_date: dbMemory.memory_date,
+          photo_url: dbMemory.photo_url,
+          tags: dbMemory.tags,
+          importance_level: dbMemory.importance_level,
+          is_favorite: dbMemory.is_favorite,
+          updated_at: dbMemory.updated_at
+        };
+
+        const updatedMemories = [newMemory, ...memories];
+        setMemories(updatedMemories);
+        
+        // Reset form
+        setTitle('');
+        setDescription('');
+        setPhotoUri('');
+        setSelectedDate(new Date().toISOString().split('T')[0]);
+        setSelectedEmotions([]);
+        setShowAddModal(false);
+        
+        Alert.alert('Success', 'Core memory added successfully!');
+      } else {
+        Alert.alert('Error', result.error || 'Failed to create memory');
+      }
+    } catch (error) {
+      console.error('Error creating memory:', error);
+      Alert.alert('Error', 'Failed to create memory');
+    }
   };
 
   const deleteMemory = (memoryId: string) => {
@@ -183,11 +227,22 @@ export default function CoreMemoryScreen() {
         {
           text: 'Delete',
           style: 'destructive',
-          onPress: () => {
-            const updatedMemories = memories.filter(m => m.id !== memoryId);
-            saveMemories(updatedMemories);
-            setShowDetailModal(false);
-            setSelectedMemory(null);
+          onPress: async () => {
+            try {
+              const result = await DataService.deleteCoreMemory(memoryId);
+              if (result.success) {
+                const updatedMemories = memories.filter(m => m.id !== memoryId);
+                setMemories(updatedMemories);
+                setShowDetailModal(false);
+                setSelectedMemory(null);
+                Alert.alert('Success', 'Memory deleted successfully!');
+              } else {
+                Alert.alert('Error', result.error || 'Failed to delete memory');
+              }
+            } catch (error) {
+              console.error('Error deleting memory:', error);
+              Alert.alert('Error', 'Failed to delete memory');
+            }
           },
         },
       ]
@@ -424,7 +479,13 @@ export default function CoreMemoryScreen() {
               
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: '#ef4444' }]}
-                onPress={() => deleteMemory(selectedMemory.id)}
+                onPress={() => {
+                  if (selectedMemory) {
+                    deleteMemory(selectedMemory.id);
+                  } else {
+                    Alert.alert('Error', 'No memory selected for deletion');
+                  }
+                }}
               >
                 <Text style={[styles.actionButtonText, { color: colors.buttonText }]}>
                   Delete
@@ -649,7 +710,11 @@ export default function CoreMemoryScreen() {
       ) : (
         <ScrollView style={styles.memoriesList} showsVerticalScrollIndicator={false}>
           <View style={styles.memoriesGrid}>
-            {sortedMemories.map(renderMemoryCard)}
+            {sortedMemories.map((memory) => (
+            <View key={memory.id}>
+              {renderMemoryCard(memory)}
+            </View>
+          ))}
           </View>
         </ScrollView>
       )}

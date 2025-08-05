@@ -78,3 +78,41 @@
 - ✅ Modified `NicknamePopup` to load extracted nickname from AsyncStorage
 - ✅ Updated home screen to store nickname in database during onboarding
 - ✅ Added proper error handling and fallbacks
+
+## Google Calendar OAuth Integration
+
+### Step 1: Use supabase.auth.signInWithOAuth with Calendar scopes
+
+- [x] Update calendar screen to use `supabase.auth.signInWithOAuth` with calendar scopes
+- [x] Add `redirectTo: window.location.origin + '/auth-callback'` parameter
+- [x] Remove AuthService dependency and use direct Supabase OAuth
+- [ ] Test OAuth flow from calendar page
+
+### Step 2: Handle /auth-callback properly
+
+- [x] Update auth callback to handle calendar OAuth redirects
+- [x] Ensure session.provider_token is available after OAuth
+- [x] Redirect back to calendar page after successful OAuth
+
+### Step 3: Handle existing session + new token
+
+- [x] Update calendar screen to use session.provider_token
+- [x] Fetch Google Calendar events using provider_token
+- [x] Update UI to show connected status
+- [ ] Handle token refresh if needed
+
+### UI Flow Implementation
+
+- [x] User clicks "Connect Google Calendar" button in calendar tab
+- [x] Call supabase.auth.signInWithOAuth with calendar scope
+- [x] User completes Google OAuth
+- [x] Auth-callback page loads and session is updated
+- [x] Use session.provider_token to access calendar events
+- [ ] Display calendar events in the main app
+
+## Current Status
+
+- ✅ Step 1: Completed - Implemented proper Supabase OAuth pattern
+- ✅ Step 2: Completed - Updated auth callback to handle calendar redirects
+- ✅ Step 3: Completed - Updated calendar screen to use session.provider_token
+- 🔄 Ready for testing: Test the complete OAuth flow from calendar page

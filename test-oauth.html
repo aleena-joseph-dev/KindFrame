@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OAuth Test - Localhost 3000</title>
+</head>
+<body>
+    <h1>OAuth Test - Localhost 3000</h1>
+    <button onclick="testOAuth()">Test OAuth with Localhost 3000</button>
+    
+    <script>
+        function testOAuth() {
+            const clientId = '57453908124-1tr7r9f6uam0sojtkmt6k4qmdc8n7iv6.apps.googleusercontent.com';
+            const redirectUri = 'http://localhost:3000/callback'; // Standard localhost port
+            const scope = 'https://www.googleapis.com/auth/calendar';
+            const state = 'calendar';
+            
+            console.log('🔍 Test OAuth with localhost:3000:');
+            console.log('🔍 clientId:', clientId);
+            console.log('🔍 redirectUri:', redirectUri);
+            console.log('🔍 scope:', scope);
+            
+            const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${state}&debug=localhost3000-test-${Date.now()}`;
+            
+            console.log('🔍 Full OAuth URL:', oauthUrl);
+            
+            window.location.href = oauthUrl;
+        }
+    </script>
+</body>
+</html> 

@@ -1,22 +1,25 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AuthService } from '@/services/authService';
+import { DataService, Note as DatabaseNote } from '@/services/dataService';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Button } from '@/components/ui/Button';
 import { NotesIcon } from '@/components/ui/NotesIcon';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { useSession, useSessionContext, useSupabaseClient } from '@supabase/auth-helpers-react';
 
 interface Note {
   id: string;
@@ -30,9 +33,15 @@ interface Note {
 
 export default function NotesScreen() {
   const router = useRouter();
-  const { mode, colors } = useThemeColors();
+  const themeResult = useThemeColors();
+  const mode = themeResult.mode;
+  const colors = themeResult.colors;
+  
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, navigationStack } = usePreviousScreen();
+  const session = useSession();
+  const supabase = useSupabaseClient();
+  const { isLoading: authLoading } = useSessionContext();
   
   const [notes, setNotes] = useState<Note[]>([]);
   const [showAddNote, setShowAddNote] = useState(false);
@@ -44,6 +53,12 @@ export default function NotesScreen() {
   const [newNoteTitle, setNewNoteTitle] = useState('');
   const [newNoteContent, setNewNoteContent] = useState('');
   const [newNoteCategory, setNewNoteCategory] = useState<'personal' | 'work' | 'ideas' | 'journal' | 'learning' | 'other'>('personal');
+  const [showGoogleKeepSync, setShowGoogleKeepSync] = useState(false);
+  const [isGoogleKeepConnected, setIsGoogleKeepConnected] = useState(false);
+  const [showSyncSuccess, setShowSyncSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [googleKeepNotes, setGoogleKeepNotes] = useState([]);
+  const [showGoogleKeepModal, setShowGoogleKeepModal] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -53,87 +68,332 @@ export default function NotesScreen() {
 
   useEffect(() => {
     loadNotes();
-  }, []);
+    checkGoogleKeepConnection();
+  }, [session, selectedCategory]); // Re-check when session or category changes
+
+  // Load synced Google Keep notes when connection status changes
+  useEffect(() => {
+    if (isGoogleKeepConnected) {
+      loadSyncedKeepNotes();
+      setShowSyncSuccess(true);
+    }
+  }, [isGoogleKeepConnected]);
 
   const loadNotes = async () => {
     try {
-      const savedNotes = await AsyncStorage.getItem('notes');
-      if (savedNotes) {
-        setNotes(JSON.parse(savedNotes));
+      setIsLoading(true);
+      const result = await DataService.getNotes(50, 0, selectedCategory === 'all' ? undefined : selectedCategory);
+      if (result.success && result.data) {
+        // Convert database notes to local note format
+        const convertedNotes = (result.data as DatabaseNote[]).map(dbNote => ({
+          id: dbNote.id,
+          title: dbNote.title,
+          content: dbNote.content || '',
+          category: dbNote.category || 'personal',
+          createdAt: new Date(dbNote.created_at),
+          updatedAt: new Date(dbNote.updated_at),
+          tags: dbNote.tags || []
+        }));
+        setNotes(convertedNotes);
+      } else {
+        console.error('Error loading notes:', result.error);
+        setNotes([]);
       }
     } catch (error) {
       console.error('Error loading notes:', error);
+      setNotes([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
   const saveNotes = async (updatedNotes: Note[]) => {
     try {
-      await AsyncStorage.setItem('notes', JSON.stringify(updatedNotes));
+      // This function is now handled by individual CRUD operations
+      // We'll update the database directly in handleAddNote, handleUpdateNote, etc.
+      console.log('Notes saved to database');
     } catch (error) {
       console.error('Error saving notes:', error);
     }
   };
 
-  const handleAddNote = () => {
+  // Google Keep Integration
+  const checkGoogleKeepConnection = async () => {
+    try {
+      console.log('Checking Google Keep connection...');
+      
+      // Get provider token from localStorage (Notes/Keep-specific)
+      const providerToken = localStorage.getItem('google_keep_token');
+      console.log('🔍 Provider token exists:', !!providerToken);
+      
+      // Check if user has a Supabase session and provider token
+      if (session && session.user && providerToken) {
+        console.log('✅ User authenticated with Google Keep access');
+        console.log('🔍 User email:', session.user.email);
+        setIsGoogleKeepConnected(true);
+        
+        // If connected, fetch notes
+        fetchGoogleKeepNotes();
+      } else if (session && session.user) {
+        console.log('✅ User authenticated but no Google Keep access yet');
+        console.log('🔍 User email:', session.user.email);
+        setIsGoogleKeepConnected(false);
+      } else {
+        console.log('❌ No Supabase session found');
+        setIsGoogleKeepConnected(false);
+      }
+    } catch (error) {
+      console.error('Error checking Google Keep connection:', error);
+      setIsGoogleKeepConnected(false);
+    }
+  };
+
+  const fetchGoogleKeepNotes = async () => {
+    try {
+      setIsLoading(true);
+      console.log('🔍 Fetching Google Keep notes using AuthService...');
+      
+      // Use AuthService to fetch Google Keep notes
+      const notes = await AuthService.fetchGoogleKeepNotes();
+      
+      setGoogleKeepNotes(notes);
+      console.log('🔍 Fetched Google Keep notes count:', notes.length);
+      
+      // Sync notes to database using DataService
+      try {
+        const syncResult = await DataService.syncGoogleKeepNotes(notes);
+        if (syncResult.success) {
+          const syncedNotes = syncResult.data as DatabaseNote[];
+          console.log('✅ Google Keep notes synced to database:', syncedNotes?.length || 0);
+          // Reload notes from database to show synced notes
+          await loadNotes();
+        } else {
+          console.error('❌ Failed to sync Google Keep notes:', syncResult.error);
+        }
+      } catch (syncError) {
+        console.error('❌ Error syncing Google Keep notes:', syncError);
+      }
+    } catch (error) {
+      console.error('Error fetching Google Keep notes:', error);
+      setGoogleKeepNotes([]);
+      
+      // If the API call fails, it might mean the token is invalid
+      // Check if the error is related to authentication
+      if (error.message && error.message.includes('No Google access token found')) {
+        console.log('🔍 Token not found, setting connection to false');
+        setIsGoogleKeepConnected(false);
+        // Clear the invalid token
+        localStorage.removeItem('google_keep_token');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleGoogleKeepSync = () => {
+    if (isGoogleKeepConnected) {
+      console.log('🔍 Google Keep already connected');
+    } else {
+      console.log('🔍 Opening Google Keep sync modal');
+      setShowGoogleKeepSync(true);
+    }
+  };
+
+  const handleSyncKeep = () => {
+    if (isGoogleKeepConnected) {
+      fetchGoogleKeepNotes();
+    } else {
+      setShowGoogleKeepModal(true);
+    }
+  };
+
+  const handleRefreshKeep = async () => {
+    try {
+      console.log('🔍 Refreshing Google Keep notes...');
+      setIsLoading(true);
+      
+      // Fetch fresh Google Keep notes using the existing function
+      await fetchGoogleKeepNotes();
+      
+      // Also reload local notes from database
+      await loadNotes();
+      
+      console.log('🔍 Google Keep notes refreshed successfully');
+    } catch (error) {
+      console.error('Error refreshing Google Keep:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleConnectGoogleKeep = async () => {
+    try {
+      setShowGoogleKeepModal(false);
+      setIsLoading(true);
+      
+      console.log('🔍 Connect button clicked!');
+      console.log('🔍 Supabase client:', supabase);
+      console.log('🔍 Current session:', session);
+      console.log('🔍 About to call supabase.auth.signInWithOAuth...');
+      console.log('🔍 This will authenticate user and request Google Keep access');
+      
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          scopes: 'https://www.googleapis.com/auth/drive.readonly https://www.googleapis.com/auth/drive.metadata.readonly https://www.googleapis.com/auth/documents.readonly',
+          redirectTo: window.location.origin + '/auth-callback?state=notes',
+          queryParams: {
+            prompt: 'consent', // Force consent screen even if user is already authenticated
+            access_type: 'offline'
+          }
+        }
+      });
+      
+      console.log('🔍 OAuth response data:', data);
+      console.log('🔍 OAuth response error:', error);
+      
+      if (error) {
+        console.error('❌ OAuth error:', error);
+        setIsLoading(false);
+      } else {
+        console.log('✅ Auth initiated successfully!');
+        console.log('🔍 User will be redirected to Google OAuth...');
+        // The OAuth flow will redirect to auth-callback
+      }
+    } catch (error) {
+      console.error('❌ Error connecting to Google Keep:', error);
+      setIsLoading(false);
+    }
+  };
+
+  const handleLaterGoogleKeep = () => {
+    setShowGoogleKeepSync(false);
+  };
+
+  const handleSignOut = async () => {
+    try {
+      await supabase.auth.signOut();
+      // Clear provider token from localStorage
+      localStorage.removeItem('google_provider_token');
+      setIsGoogleKeepConnected(false);
+      setGoogleKeepNotes([]);
+      console.log('✅ Signed out successfully');
+    } catch (error) {
+      console.error('Error signing out:', error);
+    }
+  };
+
+  // Removed checkLastOAuthUrlDebug function to avoid AuthService dependency
+
+  // Load synced Google Keep notes
+  const loadSyncedKeepNotes = async () => {
+    try {
+      console.log('Loading synced Google Keep notes...');
+      // Use our server API directly
+      await fetchGoogleKeepNotes();
+    } catch (error) {
+      console.error('Error loading synced Keep notes:', error);
+    }
+  };
+
+  const handleAddNote = async () => {
     if (!newNoteTitle.trim() || !newNoteContent.trim()) {
-      Alert.alert('Empty Note', 'Please enter both title and content.');
       return;
     }
 
-    const newNote: Note = {
-      id: Date.now().toString(),
-      title: newNoteTitle.trim(),
-      content: newNoteContent.trim(),
-      category: newNoteCategory,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    };
+    try {
+      setIsLoading(true);
+      const result = await DataService.createNote({
+        title: newNoteTitle.trim(),
+        content: newNoteContent.trim(),
+        category: newNoteCategory,
+        tags: []
+      });
 
-    const updatedNotes = [newNote, ...notes];
-    setNotes(updatedNotes);
-    saveNotes(updatedNotes);
-    
-    setNewNoteTitle('');
-    setNewNoteContent('');
-    setNewNoteCategory('personal');
-    setShowAddNote(false);
+      if (result.success && result.data) {
+        // Convert database note to local note format
+        const dbNote = result.data as DatabaseNote;
+        const newNote: Note = {
+          id: dbNote.id,
+          title: dbNote.title,
+          content: dbNote.content || '',
+          category: dbNote.category || 'personal',
+          createdAt: new Date(dbNote.created_at),
+          updatedAt: new Date(dbNote.updated_at),
+          tags: dbNote.tags || []
+        };
+
+        const updatedNotes = [newNote, ...notes];
+        setNotes(updatedNotes);
+        
+        setNewNoteTitle('');
+        setNewNoteContent('');
+        setNewNoteCategory('personal');
+        setShowAddNote(false);
+      } else {
+        console.error('Failed to create note:', result.error);
+      }
+    } catch (error) {
+      console.error('Error creating note:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  const handleUpdateNote = (noteId: string, updatedTitle: string, updatedContent: string) => {
-    const updatedNotes = notes.map(note => {
-      if (note.id === noteId) {
-        return {
-          ...note,
-          title: updatedTitle,
-          content: updatedContent,
-          updatedAt: new Date(),
-        };
+  const handleUpdateNote = async (noteId: string, updatedTitle: string, updatedContent: string) => {
+    try {
+      setIsLoading(true);
+      const result = await DataService.updateNote(noteId, {
+        title: updatedTitle,
+        content: updatedContent
+      });
+
+      if (result.success && result.data) {
+        const dbNote = result.data as DatabaseNote;
+        const updatedNotes = notes.map(note => {
+          if (note.id === noteId) {
+            return {
+              ...note,
+              title: dbNote.title,
+              content: dbNote.content || '',
+              updatedAt: new Date(dbNote.updated_at),
+            };
+          }
+          return note;
+        });
+        setNotes(updatedNotes);
+        setSelectedNote(null);
+      } else {
+        console.error('Failed to update note:', result.error);
       }
-      return note;
-    });
-    setNotes(updatedNotes);
-    saveNotes(updatedNotes);
-    setSelectedNote(null);
+    } catch (error) {
+      console.error('Error updating note:', error);
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleDeleteNote = (noteId: string) => {
-    Alert.alert(
-      'Delete Note',
-      'Are you sure you want to delete this note? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            const updatedNotes = notes.filter(note => note.id !== noteId);
-            setNotes(updatedNotes);
-            saveNotes(updatedNotes);
-            setSelectedNote(null);
-          },
-        },
-      ]
-    );
+    const deleteNote = async () => {
+      try {
+        setIsLoading(true);
+        const result = await DataService.deleteNote(noteId);
+        
+        if (result.success) {
+          const updatedNotes = notes.filter(note => note.id !== noteId);
+          setNotes(updatedNotes);
+          setSelectedNote(null);
+        } else {
+          console.error('Failed to delete note:', result.error);
+        }
+      } catch (error) {
+        console.error('Error deleting note:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    deleteNote();
   };
 
   const getCategoryColor = (category: string) => {
@@ -180,13 +440,72 @@ export default function NotesScreen() {
 
   const filteredNotes = getFilteredNotes();
 
+  const formatNoteContent = (note) => {
+    if (note.textContent) {
+      return note.textContent.content;
+    }
+    if (note.listContent) {
+      return note.listContent.listItems?.map(item => 
+        `${item.isChecked ? '☑' : '☐'} ${item.text?.content || ''}`
+      ).join('\n') || '';
+    }
+    return 'No content';
+  };
+
+  const formatNoteDate = (timestamp) => {
+    if (!timestamp) return 'Unknown date';
+    const date = new Date(timestamp);
+    return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+  };
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Notes" onBack={() => {
-        console.log('Notes back button pressed');
-        console.log('Current navigation stack:', navigationStack);
-        handleBack('menu');
-      }} showSettings={true} />
+      <TopBar 
+        title="Notes" 
+        onBack={() => {
+          console.log('Notes back button pressed');
+          console.log('Current navigation stack:', navigationStack);
+          handleBack('menu');
+        }} 
+        showSettings={true}
+        syncButton={{
+          label: "Sync Keep",
+          onPress: handleGoogleKeepSync,
+          isConnected: isGoogleKeepConnected
+        }}
+      />
+      
+      {/* Refresh Button */}
+      <View style={{ flexDirection: 'row', justifyContent: 'center', margin: 10 }}>
+        <TouchableOpacity
+          style={{
+            backgroundColor: 'orange',
+            padding: 15,
+            borderRadius: 8,
+            borderWidth: 2,
+            borderColor: 'red',
+            minWidth: 120
+          }}
+          onPress={handleRefreshKeep}
+        >
+          <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold', fontSize: 16 }}>REFRESH</Text>
+        </TouchableOpacity>
+      </View>
+      
+      {/* Sync Success Banner */}
+      {showSyncSuccess && (
+        <View style={[styles.successBanner, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.successText, { color: colors.background }]}>
+            ✅ Google Keep synced successfully! Your notes are now available.
+          </Text>
+          <TouchableOpacity 
+            onPress={() => setShowSyncSuccess(false)}
+            style={styles.closeButton}
+          >
+            <Text style={[styles.closeButtonText, { color: colors.background }]}>×</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Search Bar */}
       <View style={styles.searchContainer}>
@@ -232,6 +551,56 @@ export default function NotesScreen() {
         ))}
       </ScrollView>
 
+      {/* Google Keep Notes Section */}
+      {isGoogleKeepConnected && (
+        <View style={styles.googleKeepSection}>
+          <View style={styles.sectionHeader}>
+            <Text style={[styles.googleKeepSectionTitle, { color: colors.text }]}>Google Keep Notes</Text>
+            <TouchableOpacity
+              style={[styles.syncButton, { backgroundColor: colors.primary }]}
+              onPress={fetchGoogleKeepNotes}
+            >
+              <Text style={[styles.syncButtonText, { color: colors.background }]}>
+                {isLoading ? 'Syncing...' : 'Sync'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          
+          {isLoading ? (
+            <View style={styles.loadingContainer}>
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading notes...</Text>
+            </View>
+          ) : googleKeepNotes.length > 0 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.googleKeepNotesContainer}>
+              {googleKeepNotes.map((note) => (
+                <View key={note.id} style={[styles.googleKeepNoteCard, { backgroundColor: colors.surface }]}>
+                  <Text style={[styles.googleKeepNoteTitle, { color: colors.text }]}>
+                    {note.title || 'Untitled Note'}
+                  </Text>
+                  <Text style={[styles.googleKeepNoteContent, { color: colors.textSecondary }]} numberOfLines={3}>
+                    {formatNoteContent(note)}
+                  </Text>
+                  <Text style={[styles.googleKeepNoteDate, { color: colors.textSecondary }]}>
+                    {formatNoteDate(note.userEditedTimestampUsec)}
+                  </Text>
+                  {note.labels && note.labels.length > 0 && (
+                    <View style={styles.labelsContainer}>
+                      {note.labels.map((label) => (
+                        <Text key={label.name} style={[styles.label, { backgroundColor: colors.primary + '20', color: colors.primary }]}>
+                          {label.name}
+                        </Text>
+                      ))}
+                    </View>
+                  )}
+                </View>
+              ))}
+            </ScrollView>
+          ) : (
+            <Text style={[styles.noNotesText, { color: colors.textSecondary }]}>No Google Keep notes found</Text>
+          )}
+        </View>
+      )}
+
       {/* Add Note Button */}
       <View style={styles.addButtonContainer}>
         <TouchableOpacity
@@ -242,7 +611,11 @@ export default function NotesScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Notes List */}
+      {/* Local Notes Section */}
+      <View style={styles.localNotesSection}>
+        <Text style={[styles.googleKeepSectionTitle, { color: colors.text }]}>Local Notes</Text>
+        
+        {/* Notes List */}
       <ScrollView style={styles.notesContainer} showsVerticalScrollIndicator={false}>
         {filteredNotes.length === 0 ? (
           <View style={styles.emptyState}>
@@ -284,6 +657,37 @@ export default function NotesScreen() {
           ))
         )}
       </ScrollView>
+      </View>
+
+      {/* Google Keep Sync Modal */}
+      {showGoogleKeepSync && (
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Sync Google Keep</Text>
+            <Text style={[styles.existingModalDescription, { color: colors.textSecondary }]}>
+              Want to sync your notes with Google Keep/Notes for easy access? Connect now.
+            </Text>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.existingConnectButton, { backgroundColor: colors.buttonBackground }]}
+                onPress={handleConnectGoogleKeep}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Connect</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.laterButton, { borderColor: colors.border }]}
+                onPress={handleLaterGoogleKeep}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.textSecondary }]}>Later</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {/* Debug button removed */}
+          </View>
+        </View>
+      )}
 
       {/* Add Note Modal */}
       {showAddNote && (
@@ -422,6 +826,63 @@ export default function NotesScreen() {
           </View>
         </View>
       )}
+
+      {/* Google Keep Connection Modal */}
+      <Modal
+        visible={showGoogleKeepModal}
+        animationType="slide"
+        presentationStyle="pageSheet"
+      >
+        <View style={styles.googleKeepModalContainer}>
+          <View style={styles.googleKeepModalHeader}>
+            <Text style={styles.googleKeepModalTitle}>Connect Google Keep</Text>
+            <Button 
+              title="✕" 
+              onPress={() => setShowGoogleKeepModal(false)}
+              style={styles.googleKeepCloseButton}
+            />
+          </View>
+          
+          <View style={styles.googleKeepModalContent}>
+            <Text style={styles.googleKeepModalDescription}>
+              Connect your Google Keep account to sync your notes with KindFrame.
+            </Text>
+            
+            <Button 
+              title="Connect Google Keep" 
+              onPress={() => {
+                setShowGoogleKeepModal(false);
+                
+                // Construct Google OAuth URL directly
+                const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '57453908124-1tr7r9f6uam0sojtkmt6k4qmdc8n7iv6.apps.googleusercontent.com';
+                const redirectUri = 'http://localhost:8082/auth-callback'; // Hardcoded for now
+                const scope = 'https://www.googleapis.com/auth/drive.readonly';
+                const state = 'keep';
+                
+                console.log('🔍 OAuth URL construction:');
+                console.log('🔍 clientId:', clientId);
+                console.log('🔍 redirectUri:', redirectUri);
+                console.log('🔍 scope:', scope);
+                
+                // Validate clientId
+                if (!clientId) {
+                  console.error('❌ ERROR: EXPO_PUBLIC_GOOGLE_CLIENT_ID is not defined!');
+                  return;
+                }
+                
+                // Build URL manually to avoid encoding issues
+                const oauthUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${encodeURIComponent(scope)}&access_type=offline&prompt=consent&state=${state}&debug=notes-oauth-${Date.now()}`;
+                
+                console.log('🔍 Full OAuth URL:', oauthUrl);
+                
+                // Force a hard redirect
+                window.location.replace(oauthUrl);
+              }}
+              style={styles.googleKeepConnectButton}
+            />
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -617,4 +1078,147 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  existingModalDescription: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  existingConnectButton: {
+    flex: 1,
+  },
+  laterButton: {
+    flex: 1,
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginHorizontal: 16,
+    marginTop: 8,
+    borderRadius: 8,
+  },
+  successText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: '500',
+  },
+
+  googleKeepModalContainer: {
+    flex: 1,
+    backgroundColor: '#e0e5de',
+  },
+  googleKeepModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#d1d5db',
+  },
+  googleKeepModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#2c3e50',
+  },
+  googleKeepCloseButton: {
+    backgroundColor: 'transparent',
+    padding: 8,
+  },
+  googleKeepModalContent: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+  },
+  googleKeepModalDescription: {
+    fontSize: 16,
+    color: '#7f8c8d',
+    textAlign: 'center',
+    marginBottom: 30,
+    lineHeight: 24,
+  },
+  googleKeepConnectButton: {
+    backgroundColor: '#4285f4',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  // Google Keep Notes Section Styles
+  googleKeepSection: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  googleKeepSectionTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  syncButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  syncButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  googleKeepNotesContainer: {
+    marginBottom: 8,
+  },
+  googleKeepNoteCard: {
+    width: 200,
+    marginRight: 12,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  googleKeepNoteTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  googleKeepNoteContent: {
+    fontSize: 14,
+    marginBottom: 8,
+    lineHeight: 18,
+  },
+  googleKeepNoteDate: {
+    fontSize: 12,
+    marginBottom: 8,
+  },
+  labelsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  label: {
+    fontSize: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  noNotesText: {
+    textAlign: 'center',
+    paddingVertical: 20,
+    fontSize: 14,
+  },
+  localNotesSection: {
+    flex: 1,
+  },
+
 }); 

@@ -2,7 +2,7 @@ import { SensoryColors } from '@/constants/Colors';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { AuthService } from '@/services/authService';
 import BackIcon from './BackIcon';
@@ -14,9 +14,14 @@ interface TopBarProps {
   onBack?: () => void;
   onInfo?: () => void;
   showSettings?: boolean;
+  syncButton?: {
+    label: string;
+    onPress: () => void;
+    isConnected?: boolean;
+  };
 }
 
-export function TopBar({ title, onBack, onInfo, showSettings = false }: TopBarProps) {
+export function TopBar({ title, onBack, onInfo, showSettings = false, syncButton }: TopBarProps) {
   const { mode } = useSensoryMode();
   const colors = SensoryColors[mode];
   const router = useRouter();
@@ -37,29 +42,15 @@ export function TopBar({ title, onBack, onInfo, showSettings = false }: TopBarPr
         router.replace('/(auth)/signin');
       }
     } else {
-      // For mobile, use Alert
-      Alert.alert(
-        'Logout',
-        'Are you sure you want to logout?',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          {
-            text: 'Logout',
-            style: 'destructive',
-            onPress: async () => {
-              console.log('User confirmed logout, starting signOut process...');
-              try {
-                await AuthService.signOut();
-                console.log('SignOut completed, redirecting to signin...');
-                router.replace('/(auth)/signin');
-              } catch (error) {
-                console.error('Logout error:', error);
-                Alert.alert('Error', 'Failed to logout. Please try again.');
-              }
-            },
-          },
-        ]
-      );
+      // For mobile, logout directly without confirmation
+      console.log('User clicked logout, starting signOut process...');
+      try {
+        await AuthService.signOut();
+        console.log('SignOut completed, redirecting to signin...');
+        router.replace('/(auth)/signin');
+      } catch (error) {
+        console.error('Logout error:', error);
+      }
     }
   };
 
@@ -96,6 +87,29 @@ export function TopBar({ title, onBack, onInfo, showSettings = false }: TopBarPr
             accessibilityRole="button"
           >
             <InfoIcon size={24} color={colors.text} />
+          </TouchableOpacity>
+        )}
+        {syncButton && (
+          <TouchableOpacity
+            style={[
+              styles.syncButton, 
+              { 
+                backgroundColor: syncButton.isConnected ? '#4CAF50' : colors.buttonBackground,
+                borderColor: colors.border 
+              }
+            ]}
+            onPress={() => {
+              syncButton.onPress();
+            }}
+            accessibilityLabel={syncButton.label}
+            accessibilityRole="button"
+          >
+            <Text style={[
+              styles.syncButtonText, 
+              { color: syncButton.isConnected ? '#fff' : colors.buttonText }
+            ]}>
+              {syncButton.label}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -166,5 +180,18 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.1)',
+  },
+  syncButton: {
+    marginLeft: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: 80,
+    alignItems: 'center',
+  },
+  syncButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

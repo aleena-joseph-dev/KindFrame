@@ -16,6 +16,30 @@ export interface AuthResult {
   error?: AuthError;
 }
 
+// Helper function to check for malformed URLs
+function checkForMalformedUrl(url: string, context: string): boolean {
+  const malformedUrl = 'www.googleapis.com/auth/drive.readonly%20https://www.googleapis.com/auth/drive.metadata.readonly';
+  if (url.includes(malformedUrl)) {
+    console.error(`🔍 MALFORMED URL DETECTED in ${context}:`, url);
+    alert('Malformed URL Detected: The OAuth URL is malformed. This indicates a scope encoding issue.');
+    return true;
+  }
+  return false;
+}
+
+// Helper function to check the last OAuth URL that was used
+export function checkLastOAuthUrl(): string | null {
+  const url = localStorage.getItem('last_oauth_url');
+  const timestamp = localStorage.getItem('last_oauth_timestamp');
+  if (url && timestamp) {
+    const timeDiff = Date.now() - parseInt(timestamp);
+    if (timeDiff < 60000) { // Within last minute
+      return url;
+    }
+  }
+  return null;
+}
+
 export class AuthService {
   // Email/Password Sign Up
   static async signUp(email: string, password: string, fullName?: string): Promise<AuthResult> {
@@ -367,7 +391,8 @@ export class AuthService {
       
       // For web, we'll redirect to the Notion OAuth URL
       if (typeof window !== 'undefined') {
-        window.location.href = notionAuthUrl;
+        console.log('🔗 REDIRECTING TO NOTION OAUTH:', notionAuthUrl);
+        // window.location.href = notionAuthUrl;
       } else {
         // For mobile, we need to use expo-linking
         const Linking = await import('expo-linking');
@@ -576,6 +601,14 @@ export class AuthService {
       console.log('AuthService.signOut: Supabase auth signOut completed');
       await AsyncStorage.multiRemove(['userToken', 'userData']);
       console.log('AuthService.signOut: AsyncStorage cleared');
+      
+      // Clear Google OAuth tokens from localStorage
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('google_provider_token');
+        localStorage.removeItem('google_keep_token');
+        localStorage.removeItem('google_calendar_token');
+        console.log('AuthService.signOut: All Google tokens cleared from localStorage');
+      }
     } catch (error) {
       console.error('Sign out error:', error);
       throw error; // Re-throw to let the calling function handle it
@@ -1187,6 +1220,698 @@ export class AuthService {
           message: 'An unexpected error occurred. Please try again.',
         },
       };
+    }
+  }
+
+  // Google Calendar OAuth
+  static async initiateGoogleCalendarOAuth(): Promise<AuthResult> {
+    try {
+      console.log('=== ENVIRONMENT VARIABLES DEBUG ===');
+      console.log('EXPO_PUBLIC_GOOGLE_CLIENT_ID:', process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID);
+      console.log('EXPO_PUBLIC_GOOGLE_CLIENT_SECRET:', process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET ? '[SET]' : '[NOT SET]');
+      console.log('EXPO_PUBLIC_GOOGLE_REDIRECT_URI:', process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI);
+      console.log('NODE_ENV:', process.env.NODE_ENV);
+      console.log('===================================');
+      
+      console.log('Initiating Google Calendar OAuth...');
+      
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'your-google-client-id';
+      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      
+      // Use a single valid scope for Google Calendar
+      const scopeString = 'https://www.googleapis.com/auth/calendar.readonly';
+      
+      console.log('=== OAUTH PARAMETERS DEBUG ===');
+      console.log('clientId:', clientId);
+      console.log('redirectUri:', redirectUri);
+      console.log('scope string:', scopeString);
+      console.log('===================================');
+      
+      // Check if we have a real client ID
+      if (clientId === 'your-google-client-id') {
+        console.error('Google Client ID not configured. Please set EXPO_PUBLIC_GOOGLE_CLIENT_ID in your .env file');
+        return {
+          success: false,
+          error: {
+            message: 'Google OAuth not configured. Please set up Google OAuth credentials.',
+          },
+        };
+      }
+      
+      // Build the OAuth URL with properly encoded parameters
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scopeString, // Use the properly encoded scope string
+        access_type: 'offline',
+        prompt: 'consent',
+        state: 'calendar'
+      });
+      
+      let googleOAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      
+    
+      
+      // Validate the URL starts correctly
+      // if (!googleOAuthUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?')) {
+      //   console.error('Invalid OAuth URL generated:', googleOAuthUrl);
+      //   return {
+      //     success: false,
+      //     error: {
+      //       message: 'Failed to generate valid OAuth URL',
+      //     },
+      //   };
+      // }
+      
+      // For web, we can redirect directly
+      if (typeof window !== 'undefined') {
+        // console.log('=== FINAL REDIRECT DEBUG (CALENDAR) ===');
+        // console.log('Current window.location.origin:', window.location.origin);
+        // console.log('Current window.location.href:', window.location.href);
+        // console.log('About to redirect to:', googleOAuthUrl);
+        // console.log('URL length:', googleOAuthUrl.length);
+        // console.log('URL contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        // console.log('===================================');
+        // // Use window.location.href for direct redirect
+        // console.log('🔗 REDIRECTING TO GOOGLE CALENDAR OAUTH:', googleOAuthUrl);
+        // console.log('🔗 URL validation - starts with Google endpoint:', googleOAuthUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'));
+        // console.log('🔗 URL validation - contains scope as query param:', googleOAuthUrl.includes('scope='));
+        // console.log('🔗 URL validation - contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        
+        // Double-check the URL before redirecting
+        // if (googleOAuthUrl.includes('/https://www.googleapis.com/')) {
+        //   console.error('❌ MALFORMED URL DETECTED - scope is in path instead of query params!');
+        //   console.error('❌ This should NOT happen with URLSearchParams!');
+        //   return {
+        //     success: false,
+        //     error: {
+        //       message: 'OAuth URL construction failed - scope malformed',
+        //     },
+        //   };
+        // }
+        
+        // PROOF: Log the exact URL we're about to redirect to
+        console.log('🔗 PROOF - About to redirect to:', googleOAuthUrl);
+        console.log('🔗 PROOF - URL type:', typeof googleOAuthUrl);
+        console.log('🔗 PROOF - URL length:', googleOAuthUrl.length);
+        console.log('🔗 PROOF - URL starts with https://accounts.google.com:', googleOAuthUrl.startsWith('https://accounts.google.com'));
+        console.log('🔗 PROOF - URL contains scope as query param:', googleOAuthUrl.includes('scope='));
+        console.log('🔗 PROOF - URL contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        
+        // Check for malformed URL before redirecting
+        if (checkForMalformedUrl(googleOAuthUrl, 'Google Calendar OAuth')) {
+          return {
+            success: false,
+            error: {
+              message: 'OAuth URL is malformed due to scope encoding issue',
+            },
+          };
+        }
+        
+        // PROOF: Alert the exact URL before redirect
+        alert('Redirecting to: ' + googleOAuthUrl);
+        
+        window.location.href = googleOAuthUrl;
+        return {
+          success: true,
+        };
+      }
+      
+      // For mobile, you would use a WebView or deep linking
+      return {
+        success: false,
+        error: {
+          message: 'Google Calendar OAuth is not yet implemented for mobile',
+        },
+      };
+    } catch (error) {
+      console.error('Error initiating Google Calendar OAuth:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to initiate Google Calendar OAuth',
+        },
+      };
+    }
+  }
+
+  // Google Keep OAuth (using Google Drive API since Keep notes are stored in Drive)
+  static async initiateGoogleKeepOAuth(): Promise<AuthResult> {
+    console.log('🔗 PROOF - initiateGoogleKeepOAuth() function started');
+    try {
+     
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'your-google-client-id';
+      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      
+      // Define scopes as separate values for proper encoding
+      // For Google Keep integration, we need multiple scopes:
+      // - drive.readonly: to read files
+      // - drive.metadata.readonly: to read file metadata
+      // - docs.readonly: to read Google Docs (Keep notes are stored as docs)
+      const scopes = [
+        'https://www.googleapis.com/auth/drive.readonly',
+        'https://www.googleapis.com/auth/drive.metadata.readonly',
+        'https://www.googleapis.com/auth/documents.readonly'
+      ];
+      // Encode each scope individually, then join with spaces
+    
+      const scopeString = scopes.join(' '); // Join encoded scopes with space
+      
+      // Ensure proper encoding of the scope string
+      
+      
+    
+      // Check if we have a real client ID
+      if (clientId === 'your-google-client-id') {
+        console.error('Google Client ID not configured. Please set EXPO_PUBLIC_GOOGLE_CLIENT_ID in your .env file');
+        return {
+          success: false,
+          error: {
+            message: 'Google OAuth not configured. Please set up Google OAuth credentials.',
+          },
+        };
+      }
+      
+      // Build the OAuth URL with properly encoded parameters
+      const params = new URLSearchParams();
+      params.append('client_id', clientId);
+      params.append('redirect_uri', redirectUri);
+      params.append('response_type', 'code');
+      params.append('scope', scopeString); // Use the properly encoded scope string
+      params.append('access_type', 'offline');
+      params.append('prompt', 'consent');
+      params.append('state', 'keep');
+      
+      let googleOAuthUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
+      console.log('🔗 PROOF - googleOAuthUrl constructed:', googleOAuthUrl);
+      
+      // Debug the URL construction
+      console.log('🔍 OAuth URL Debug:');
+      console.log('🔍 Client ID:', clientId);
+      console.log('🔍 Redirect URI:', redirectUri);
+      console.log('🔍 Scope String:', scopeString);
+      console.log('🔍 Params toString():', params.toString());
+      console.log('🔍 Final URL:', googleOAuthUrl);
+      console.log('🔍 URL validation - starts with Google endpoint:', googleOAuthUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'));
+      console.log('🔍 URL validation - contains scope as query param:', googleOAuthUrl.includes('scope='));
+      console.log('🔍 URL validation - contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+      
+      
+      // Validate the URL starts correctly
+      // if (!googleOAuthUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?')) {
+      //   console.error('Invalid OAuth URL generated:', googleOAuthUrl);
+      //   return {
+      //     success: false,
+      //     error: {
+      //       message: 'Failed to generate valid OAuth URL',
+      //     },
+      //   };
+      // }
+      
+      console.log('🔗 PROOF - About to check if window is defined');
+      // For web, we can redirect directly
+      if (typeof window !== 'undefined') {
+        console.log('🔗 PROOF - Window is defined, proceeding with redirect');
+        // console.log('=== FINAL REDIRECT DEBUG (KEEP) ===');
+        // console.log('Current window.location.origin:', window.location.origin);
+        // console.log('Current window.location.href:', window.location.href);
+        // console.log('About to redirect to:', googleOAuthUrl);
+        // console.log('URL length:', googleOAuthUrl.length);
+        // console.log('URL contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        // console.log('===================================');
+        // Use window.location.href for direct redirect
+        // console.log('🔗 REDIRECTING TO GOOGLE KEEP OAUTH:', googleOAuthUrl);
+        // console.log('🔗 URL validation - starts with Google endpoint:', googleOAuthUrl.startsWith('https://accounts.google.com/o/oauth2/v2/auth?'));
+        // console.log('🔗 URL validation - contains scope as query param:', googleOAuthUrl.includes('scope='));
+        // console.log('🔗 URL validation - contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        
+        // Double-check the URL before redirecting
+        // if (googleOAuthUrl.includes('/https://www.googleapis.com/')) {
+        //   console.error('❌ MALFORMED URL DETECTED - scope is in path instead of query params!');
+        //   console.error('❌ This should NOT happen with URLSearchParams!');
+        //   return {
+        //     success: false,
+        //     error: {
+        //       message: 'OAuth URL construction failed - scope malformed',
+        //     },
+        //   };
+        // }
+        
+        // PROOF: Log the exact URL we're about to redirect to
+        console.log('🔗 PROOF - About to redirect to:', googleOAuthUrl);
+        console.log('🔗 PROOF - URL type:', typeof googleOAuthUrl);
+        console.log('🔗 PROOF - URL length:', googleOAuthUrl.length);
+        console.log('🔗 PROOF - URL starts with https://accounts.google.com:', googleOAuthUrl.startsWith('https://accounts.google.com'));
+        console.log('🔗 PROOF - URL contains scope as query param:', googleOAuthUrl.includes('scope='));
+        console.log('🔗 PROOF - URL contains scope as path:', googleOAuthUrl.includes('/https://www.googleapis.com/'));
+        
+        // PROOF: Store the URL in localStorage before redirect so we can check it later
+        localStorage.setItem('last_oauth_url', googleOAuthUrl);
+        localStorage.setItem('last_oauth_timestamp', Date.now().toString());
+        
+        // Check for malformed URL before redirecting
+        if (checkForMalformedUrl(googleOAuthUrl, 'Google Keep OAuth')) {
+          return {
+            success: false,
+            error: {
+              message: 'OAuth URL is malformed due to scope encoding issue',
+            },
+          };
+        }
+        
+        // PROOF: Alert the exact URL before redirect
+        alert('Redirecting to: ' + googleOAuthUrl);
+        
+        window.location.href = googleOAuthUrl;
+        return {
+          success: true,
+        };
+      }
+      
+      // For mobile, you would use a WebView or deep linking
+      return {
+        success: false,
+        error: {
+          message: 'Google Keep OAuth is not yet implemented for mobile',
+        },
+      };
+    } catch (error) {
+      console.error('🔗 PROOF - Error in initiateGoogleKeepOAuth:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to initiate Google Keep OAuth',
+        },
+      };
+    }
+  }
+
+  // Google Calendar Data Fetching
+  static async fetchGoogleCalendarEvents(): Promise<any[]> {
+    try {
+      console.log('Fetching Google Calendar events...');
+      
+      // Get the stored access token from localStorage (Calendar-specific)
+      const accessToken = localStorage.getItem('google_calendar_token');
+      
+      if (!accessToken) {
+        console.error('No Google Calendar access token found. User needs to authenticate first.');
+        return [];
+      }
+      
+      console.log('✅ Google Calendar access token found in localStorage');
+      
+      // For now, we'll skip token expiry check since we're using localStorage
+      // In a production app, you'd want to store expiry info and refresh tokens
+      
+      // Fetch Google Calendar events
+      const now = new Date();
+      const oneMonthFromNow = new Date();
+      oneMonthFromNow.setMonth(now.getMonth() + 1);
+      
+      const response = await fetch(
+        `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${now.toISOString()}&timeMax=${oneMonthFromNow.toISOString()}&singleEvents=true&orderBy=startTime`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Error fetching Google Calendar events:', response.status);
+        console.error('❌ Error response:', errorText);
+        throw new Error(`Google Calendar API error: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Google Calendar events fetched:', data.items?.length || 0);
+      
+      // Convert to our event format
+      const convertedEvents = data.items?.map((event: any) => ({
+        id: event.id,
+        title: event.summary || 'Untitled Event',
+        description: event.description || '',
+        start_time: event.start?.dateTime || event.start?.date,
+        end_time: event.end?.dateTime || event.end?.date,
+        all_day: !event.start?.dateTime,
+        location: event.location || '',
+        color: event.colorId ? `#${event.colorId}` : '#4285f4',
+        external_id: event.id,
+        sync_source: 'google_calendar',
+        date: event.start?.dateTime ? new Date(event.start.dateTime).toISOString().split('T')[0] : event.start?.date,
+        time: event.start?.dateTime ? new Date(event.start.dateTime).toTimeString().split(' ')[0] : undefined,
+        type: 'event' as const,
+        createdAt: new Date()
+      })) || [];
+      
+      return convertedEvents;
+    } catch (error) {
+      console.error('Error fetching Google Calendar events:', error);
+      return [];
+    }
+  }
+
+  // Exchange authorization code for access tokens
+  static async exchangeGoogleCodeForTokens(code: string): Promise<AuthResult> {
+    try {
+      console.log('Exchanging Google authorization code for tokens...');
+      
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
+      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      
+      if (!clientId || !clientSecret) {
+        return {
+          success: false,
+          error: {
+            message: 'Google OAuth credentials not configured',
+          },
+        };
+      }
+      
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          code: code,
+          client_id: clientId,
+          client_secret: clientSecret,
+          redirect_uri: redirectUri,
+          grant_type: 'authorization_code',
+        }),
+      });
+      
+      const tokenData = await tokenResponse.json();
+      
+      if (!tokenResponse.ok) {
+        console.error('Token exchange failed:', tokenData);
+        return {
+          success: false,
+          error: {
+            message: 'Failed to exchange authorization code for tokens',
+          },
+        };
+      }
+      
+      console.log('Successfully obtained Google access tokens');
+      
+      // Store tokens securely (you might want to encrypt these)
+      // For now, we'll store them in the user's profile
+      const currentUser = await AuthService.getCurrentUser();
+      if (currentUser) {
+        await AuthService.updateUserProfile(currentUser.id, {
+          settings: {
+            ...currentUser.profile?.settings,
+            googleAccessToken: tokenData.access_token,
+            googleRefreshToken: tokenData.refresh_token,
+            googleTokenExpiry: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+          }
+        });
+      }
+      
+      return {
+        success: true,
+        user: {
+          ...currentUser,
+          googleTokens: {
+            access_token: tokenData.access_token,
+            refresh_token: tokenData.refresh_token,
+            expires_in: tokenData.expires_in,
+          }
+        }
+      };
+    } catch (error) {
+      console.error('Error exchanging Google code for tokens:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to exchange authorization code for tokens',
+        },
+      };
+    }
+  }
+
+  // Refresh Google access tokens
+  static async refreshGoogleTokens(): Promise<AuthResult> {
+    try {
+      console.log('Refreshing Google access tokens...');
+      
+      const currentUser = await AuthService.getCurrentUser();
+      const refreshToken = currentUser?.profile?.settings?.googleRefreshToken;
+      
+      if (!refreshToken) {
+        return {
+          success: false,
+          error: {
+            message: 'No refresh token found. User needs to re-authenticate.',
+          },
+        };
+      }
+      
+      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
+      
+      if (!clientId || !clientSecret) {
+        return {
+          success: false,
+          error: {
+            message: 'Google OAuth credentials not configured',
+          },
+        };
+      }
+      
+      const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: new URLSearchParams({
+          refresh_token: refreshToken,
+          client_id: clientId,
+          client_secret: clientSecret,
+          grant_type: 'refresh_token',
+        }),
+      });
+      
+      const tokenData = await tokenResponse.json();
+      
+      if (!tokenResponse.ok) {
+        console.error('Token refresh failed:', tokenData);
+        return {
+          success: false,
+          error: {
+            message: 'Failed to refresh access token',
+          },
+        };
+      }
+      
+      console.log('Successfully refreshed Google access tokens');
+      
+      // Update the stored tokens
+      if (currentUser) {
+        await AuthService.updateUserProfile(currentUser.id, {
+          settings: {
+            ...currentUser.profile?.settings,
+            googleAccessToken: tokenData.access_token,
+            googleTokenExpiry: new Date(Date.now() + tokenData.expires_in * 1000).toISOString(),
+          }
+        });
+      }
+      
+      return { success: true };
+    } catch (error) {
+      console.error('Error refreshing Google tokens:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to refresh access token',
+        },
+      };
+    }
+  }
+
+  // Store OAuth tokens
+  static async storeOAuthTokens(accessToken: string, providerToken: string): Promise<AuthResult> {
+    try {
+      console.log('Storing OAuth tokens...');
+      
+      // First, try to get current user
+      const currentUser = await AuthService.getCurrentUser();
+      
+      if (currentUser) {
+        // User session is available, store tokens in profile
+        console.log('User session available, storing tokens in profile');
+        
+        const result = await AuthService.updateUserProfile(currentUser.id, {
+          settings: {
+            ...currentUser.profile?.settings,
+            googleAccessToken: providerToken,
+            googleTokenExpiry: new Date(Date.now() + 3600 * 1000).toISOString(), // 1 hour expiry
+            googleKeepConnected: true,
+            googleKeepConnectedAt: new Date().toISOString(),
+          }
+        });
+        
+        if (result.success) {
+          console.log('OAuth tokens stored successfully in profile');
+          return { success: true };
+        } else {
+          console.error('Failed to store OAuth tokens in profile:', result.error);
+          return result;
+        }
+      } else {
+        // User session not available, store tokens in localStorage temporarily
+        console.log('User session not available, storing tokens in localStorage');
+        
+        try {
+          await AsyncStorage.setItem('pendingGoogleTokens', JSON.stringify({
+            accessToken,
+            providerToken,
+            timestamp: Date.now(),
+            expiry: new Date(Date.now() + 3600 * 1000).toISOString()
+          }));
+          
+          console.log('OAuth tokens stored temporarily in localStorage');
+          return { success: true };
+        } catch (storageError) {
+          console.error('Failed to store tokens in localStorage:', storageError);
+          return {
+            success: false,
+            error: {
+              message: 'Failed to store OAuth tokens temporarily',
+            },
+          };
+        }
+      }
+    } catch (error) {
+      console.error('Error storing OAuth tokens:', error);
+      return {
+        success: false,
+        error: {
+          message: 'Failed to store OAuth tokens',
+        },
+      };
+    }
+  }
+
+  // Process pending OAuth tokens
+  static async processPendingTokens(): Promise<void> {
+    try {
+      console.log('Checking for pending OAuth tokens...');
+      
+      const pendingTokensData = await AsyncStorage.getItem('pendingGoogleTokens');
+      
+      if (pendingTokensData) {
+        const pendingTokens = JSON.parse(pendingTokensData);
+        const currentUser = await AuthService.getCurrentUser();
+        
+        if (currentUser && pendingTokens.timestamp) {
+          // Check if tokens are still valid (within 1 hour)
+          const tokenAge = Date.now() - pendingTokens.timestamp;
+          const maxAge = 60 * 60 * 1000; // 1 hour
+          
+          if (tokenAge < maxAge) {
+            console.log('Processing pending OAuth tokens...');
+            
+            const result = await AuthService.updateUserProfile(currentUser.id, {
+              settings: {
+                ...currentUser.profile?.settings,
+                googleAccessToken: pendingTokens.providerToken,
+                googleTokenExpiry: pendingTokens.expiry,
+                googleKeepConnected: true,
+                googleKeepConnectedAt: new Date().toISOString(),
+              }
+            });
+            
+            if (result.success) {
+              console.log('Pending OAuth tokens processed successfully');
+              await AsyncStorage.removeItem('pendingGoogleTokens');
+            } else {
+              console.error('Failed to process pending OAuth tokens:', result.error);
+            }
+          } else {
+            console.log('Pending OAuth tokens expired, removing...');
+            await AsyncStorage.removeItem('pendingGoogleTokens');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error processing pending tokens:', error);
+    }
+  }
+
+  // Google Keep Data Fetching
+  static async fetchGoogleKeepNotes(): Promise<any[]> {
+    try {
+      console.log('Fetching Google Keep notes...');
+      
+      // Get the stored access token from localStorage (Notes/Keep-specific)
+      const accessToken = localStorage.getItem('google_keep_token');
+      
+      if (!accessToken) {
+        console.error('No Google access token found. User needs to authenticate first.');
+        return [];
+      }
+      
+      console.log('✅ Google access token found in localStorage');
+      
+      // For now, we'll skip token expiry check since we're using localStorage
+      // In a production app, you'd want to store expiry info and refresh tokens
+      
+      // Fetch Google Keep notes via Google Drive API
+      // Google Keep notes are stored as Google Docs in a specific folder
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=mimeType="application/vnd.google-apps.document"&spaces=drive&fields=files(id,name,createdTime,modifiedTime,parents)&orderBy=modifiedTime desc`,
+        {
+          headers: {
+            'Authorization': `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+        }
+      );
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Error fetching Google Drive files:', response.status);
+        console.error('❌ Error response:', errorText);
+        throw new Error(`Google Drive API error: ${response.status} - ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log('✅ Google Drive files fetched:', data.files?.length || 0);
+      
+      // Filter for Google Keep notes (they have specific naming patterns)
+      const keepNotes = data.files?.filter((file: any) => {
+        // Google Keep notes typically have names that start with "Keep" or contain "note"
+        return file.name.toLowerCase().includes('keep') || 
+               file.name.toLowerCase().includes('note') ||
+               file.name.toLowerCase().includes('memo');
+      }) || [];
+      
+      console.log('✅ Google Keep notes found:', keepNotes.length);
+      
+      // Convert to our note format
+      const convertedNotes = keepNotes.map((file: any) => ({
+        id: file.id,
+        title: file.name,
+        content: `Google Keep note: ${file.name}`,
+        category: 'personal' as const,
+        createdAt: file.createdTime,
+        updatedAt: file.modifiedTime,
+        external_id: file.id,
+        sync_source: 'google_keep'
+      }));
+      
+      return convertedNotes;
+    } catch (error) {
+      console.error('Error fetching Google Keep notes:', error);
+      return [];
     }
   }
 } 

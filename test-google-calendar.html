@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Google Calendar Integration Test</title>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .event {
+            border: 1px solid #ddd;
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        .event-title {
+            font-weight: bold;
+            font-size: 18px;
+            margin-bottom: 5px;
+        }
+        .event-time {
+            color: #666;
+            font-size: 14px;
+        }
+        .event-description {
+            margin-top: 10px;
+            color: #333;
+        }
+        button {
+            background-color: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #3367d6;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .loading {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+    </style>
+</head>
+<body>
+    <h1>Google Calendar Integration Test</h1>
+    
+    <div id="auth-section">
+        <button onclick="googleSignIn()">Sign In With Google</button>
+        <button onclick="signOut()">Sign Out</button>
+    </div>
+    
+    <div id="calendar-section" style="display: none;">
+        <h2>Your Google Calendar Events</h2>
+        <button onclick="fetchCalendarEvents()">Refresh Events</button>
+        <div id="events-container"></div>
+    </div>
+    
+    <div id="status"></div>
+    
+    <script>
+        // Initialize Supabase client
+        const supabaseUrl = 'https://dlenuyofztbvhzmdfiek.supabase.co';
+        const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRsZW51eW9menRidmh6bWRmaWVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTM4NjY2NDMsImV4cCI6MjA2OTQ0MjY0M30.vyeTP56KuHKJlpcH-n8L8qFKxQrrvVSSi30S0P2Gv5A';
+        
+        let supabaseClient;
+        
+        // Wait for the script to load before creating the client
+        window.addEventListener('load', function() {
+            supabaseClient = window.supabase.createClient(supabaseUrl, supabaseKey);
+            
+            // Check if user is already signed in
+            checkSession();
+        });
+        
+        async function checkSession() {
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (session) {
+                    showStatus('Already signed in!', 'success');
+                    showCalendarSection();
+                    fetchCalendarEvents();
+                }
+            } catch (error) {
+                console.error('Error checking session:', error);
+            }
+        }
+        
+        async function googleSignIn() {
+            try {
+                showStatus('Starting OAuth...', 'loading');
+                
+                const { error } = await supabaseClient.auth.signInWithOAuth({
+                    provider: 'google',
+                    options: {
+                        scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+                        redirectTo: window.location.href
+                    }
+                });
+                
+                if (error) {
+                    showStatus('Error: ' + error.message, 'error');
+                    console.error('OAuth error:', error);
+                } else {
+                    showStatus('OAuth initiated successfully!', 'success');
+                }
+            } catch (error) {
+                showStatus('Exception: ' + error.message, 'error');
+                console.error('Exception:', error);
+            }
+        }
+
+        async function signOut() {
+            try {
+                await supabaseClient.auth.signOut();
+                showStatus('Signed out successfully!', 'success');
+                hideCalendarSection();
+            } catch (error) {
+                showStatus('Sign out error: ' + error.message, 'error');
+                console.error('Sign out error:', error);
+            }
+        }
+        
+        async function fetchCalendarEvents() {
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                
+                if (!session || !session.provider_token) {
+                    showStatus('No session or provider token available', 'error');
+                    return;
+                }
+                
+                showStatus('Fetching calendar events...', 'loading');
+                
+                // Get current date and next 7 days
+                const now = new Date();
+                const nextWeek = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+                
+                const response = await fetch(
+                    `https://www.googleapis.com/calendar/v3/calendars/primary/events?` +
+                    `timeMin=${now.toISOString()}&` +
+                    `timeMax=${nextWeek.toISOString()}&` +
+                    `singleEvents=true&` +
+                    `orderBy=startTime`,
+                    {
+                        method: 'GET',
+                        headers: {
+                            'Authorization': 'Bearer ' + session.provider_token,
+                            'Content-Type': 'application/json',
+                        },
+                    }
+                );
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    console.log('Calendar events:', data);
+                    
+                    displayEvents(data.items || []);
+                    showStatus(`Fetched ${data.items?.length || 0} events successfully!`, 'success');
+                } else {
+                    const errorData = await response.json();
+                    showStatus('Error fetching events: ' + errorData.error?.message, 'error');
+                    console.error('Calendar API error:', errorData);
+                }
+            } catch (error) {
+                showStatus('Error fetching events: ' + error.message, 'error');
+                console.error('Error fetching calendar events:', error);
+            }
+        }
+        
+        function displayEvents(events) {
+            const container = document.getElementById('events-container');
+            
+            if (events.length === 0) {
+                container.innerHTML = '<p>No upcoming events found.</p>';
+                return;
+            }
+            
+            container.innerHTML = events.map(event => {
+                const start = event.start.dateTime ? new Date(event.start.dateTime) : new Date(event.start.date);
+                const end = event.end.dateTime ? new Date(event.end.dateTime) : new Date(event.end.date);
+                
+                const startTime = start.toLocaleString();
+                const endTime = end.toLocaleString();
+                
+                return `
+                    <div class="event">
+                        <div class="event-title">${event.summary || 'No Title'}</div>
+                        <div class="event-time">${startTime} - ${endTime}</div>
+                        ${event.description ? `<div class="event-description">${event.description}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function showCalendarSection() {
+            document.getElementById('calendar-section').style.display = 'block';
+        }
+        
+        function hideCalendarSection() {
+            document.getElementById('calendar-section').style.display = 'none';
+            document.getElementById('events-container').innerHTML = '';
+        }
+        
+        function showStatus(message, type) {
+            const statusDiv = document.getElementById('status');
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html> 

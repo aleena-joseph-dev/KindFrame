@@ -2,20 +2,20 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import Animated, {
-  Easing,
-  useAnimatedStyle,
-  useSharedValue,
-  withRepeat,
-  withSequence,
-  withTiming
+    Easing,
+    useAnimatedStyle,
+    useSharedValue,
+    withRepeat,
+    withSequence,
+    withTiming
 } from 'react-native-reanimated';
 import { usePreviousScreen } from '../../components/ui/PreviousScreenContext';
 import { TopBar } from '../../components/ui/TopBar';
@@ -643,7 +643,11 @@ export default function MeditationScreen() {
         </Text>
         
         <View style={styles.sessionsGrid}>
-          {MEDITATION_SESSIONS.map(renderSessionCard)}
+          {MEDITATION_SESSIONS.map(session => (
+            <View key={session.id}>
+              {renderSessionCard(session)}
+            </View>
+          ))}
         </View>
       </ScrollView>
       
