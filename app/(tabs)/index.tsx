@@ -43,6 +43,15 @@ export default function HomeScreen() {
   const { mode, setMode, isLoading: modeLoading, refreshMode, loadModeForAuthenticatedUser } = useSensoryMode();
   const { isGuestMode } = useGuestMode();
   const { session } = useAuth();
+  const { 
+    hasCompletedTutorial, 
+    showTutorial, 
+    showAppreciation, 
+    startTutorial, 
+    completeTutorial, 
+    skipTutorial, 
+    hideAppreciation 
+  } = useTutorial();
 
   // Loading state for splash
   const [loading, setLoading] = useState(true);
@@ -74,6 +83,13 @@ export default function HomeScreen() {
   
   // Track if this is the first time loading the app
   const isFirstLoad = useRef(true);
+
+  // Tutorial element refs for positioning
+  const quickJotRef = useRef<View>(null);
+  const menuRef = useRef<View>(null);
+  const todaysFocusRef = useRef<View>(null);
+  const zoneOutRef = useRef<View>(null);
+  const moodTrackerRef = useRef<View>(null);
 
   // Reset navigation stack when home screen mounts
   useEffect(() => {
@@ -506,6 +522,25 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>  
+      {/* Tutorial Button */}
+      <TutorialButton
+        onPress={startTutorial}
+        hasCompletedTutorial={hasCompletedTutorial}
+      />
+
+      {/* Tutorial Overlay */}
+      <TutorialOverlay
+        visible={showTutorial}
+        onComplete={completeTutorial}
+        onSkip={skipTutorial}
+      />
+
+      {/* Appreciation Animation */}
+      <AppreciationAnimation
+        visible={showAppreciation}
+        onComplete={hideAppreciation}
+      />
+
       {/* Top HUD */}
       <View style={[styles.topHud, { backgroundColor: colors.topBarBackground }]}>  
         <Image

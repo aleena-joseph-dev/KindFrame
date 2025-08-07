@@ -9,6 +9,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { GuestModeProvider } from '@/contexts/GuestModeContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { SensoryModeProvider } from '@/contexts/SensoryModeContext';
+import { TutorialProvider } from '@/contexts/TutorialContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 
 
@@ -29,24 +30,26 @@ export default function RootLayout() {
       <OnboardingProvider>
         <GuestModeProvider>
           <SensoryModeProvider>
-            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-              <PreviousScreenProvider>
-              <Stack
-                screenOptions={{
-                  contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
-                }}
-              >
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-                <Stack.Screen name="menu" options={{ headerShown: false }} />
-                <Stack.Screen name="auth-callback/index" options={{ headerShown: false }} />
-                <Stack.Screen name="+not-found" />
-              </Stack>
-              <StatusBar style="auto" />
-                          </PreviousScreenProvider>
-            </ThemeProvider>
+            <TutorialProvider>
+              <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                <PreviousScreenProvider>
+                <Stack
+                  screenOptions={{
+                    contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
+                  }}
+                >
+                  <Stack.Screen name="index" options={{ headerShown: false }} />
+                  <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                  <Stack.Screen name="menu" options={{ headerShown: false }} />
+                  <Stack.Screen name="auth-callback/index" options={{ headerShown: false }} />
+                  <Stack.Screen name="+not-found" />
+                </Stack>
+                <StatusBar style="auto" />
+                            </PreviousScreenProvider>
+              </ThemeProvider>
+            </TutorialProvider>
           </SensoryModeProvider>
         </GuestModeProvider>
       </OnboardingProvider>
