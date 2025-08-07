@@ -1,24 +1,18 @@
 import * as ImagePicker from 'expo-image-picker';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-    Alert,
-    Dimensions,
-    Image,
-    Modal,
-    ScrollView,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
-} from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Alert, Dimensions, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
+
+import { TopBar } from '@/components/ui/TopBar';
+import { SensoryColors } from '@/constants/Colors';
+import { useAuth } from '@/contexts/AuthContext';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import { useGuestData } from '@/hooks/useGuestData';
 import { CameraIcon } from '../../components/ui/CameraIcon';
 import { FilmIcon } from '../../components/ui/FilmIcon';
 import { usePreviousScreen } from '../../components/ui/PreviousScreenContext';
+import { SaveWorkModal } from '../../components/ui/SaveWorkModal';
 import { SparklesIcon } from '../../components/ui/SparklesIcon';
 import { StarIcon } from '../../components/ui/StarIcon';
-import { TopBar } from '../../components/ui/TopBar';
-import { SensoryColors } from '../../constants/Colors';
-import { useSensoryMode } from '../../contexts/SensoryModeContext';
 import { DataService } from '../../services/dataService';
 
 interface CoreMemory {
@@ -44,18 +38,37 @@ export default function CoreMemoryScreen() {
   const { mode } = useSensoryMode();
   const colors = SensoryColors[mode];
   const { addToStack, handleBack } = usePreviousScreen();
+  const { session } = useAuth();
+  const { 
+    isGuestMode, 
+    createCoreMemory, 
+    deleteCoreMemory,
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
+  
+  // Calculate responsive width
+  const screenWidth = Dimensions.get('window').width;
+  const cardWidth = (screenWidth - 60) / 2;
   
   const [memories, setMemories] = useState<CoreMemory[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showSlideshow, setShowSlideshow] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [memoryToDelete, setMemoryToDelete] = useState<CoreMemory | null>(null);
   const [selectedMemory, setSelectedMemory] = useState<CoreMemory | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [filterEmotion, setFilterEmotion] = useState<string>('');
   
   // Slideshow state
   const [currentSlideshowIndex, setCurrentSlideshowIndex] = useState(0);
-  const slideshowIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const slideshowIntervalRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
   
   // Form state
   const [title, setTitle] = useState('');
@@ -117,7 +130,8 @@ export default function CoreMemoryScreen() {
     try {
       const result = await DataService.getCoreMemories();
       if (result.success && result.data) {
-        const dbMemories = result.data;
+        // Handle both single memory and array of memories
+        const dbMemories = Array.isArray(result.data) ? result.data : [result.data];
         const convertedMemories = dbMemories.map(dbMemory => ({
           id: dbMemory.id,
           title: dbMemory.title,
@@ -136,15 +150,23 @@ export default function CoreMemoryScreen() {
         setMemories(convertedMemories);
       } else {
         console.error('Error loading memories:', result.error);
+        setMemories([]);
       }
     } catch (error) {
       console.error('Error loading memories:', error);
+      setMemories([]);
     }
   };
 
 
 
   const pickImage = async () => {
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
+      return;
+    }
+
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -168,8 +190,14 @@ export default function CoreMemoryScreen() {
       return;
     }
 
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
+      return;
+    }
+
     try {
-      const result = await DataService.createCoreMemory({
+      const result = await createCoreMemory({
         title: title.trim(),
         description: description.trim() || undefined,
         memory_date: selectedDate,
@@ -180,7 +208,8 @@ export default function CoreMemoryScreen() {
       });
 
       if (result.success && result.data) {
-        const dbMemory = result.data;
+        // Handle both single memory and array of memories
+        const dbMemory = Array.isArray(result.data) ? result.data[0] : result.data;
         const newMemory: CoreMemory = {
           id: dbMemory.id,
           title: dbMemory.title,
@@ -219,34 +248,61 @@ export default function CoreMemoryScreen() {
   };
 
   const deleteMemory = (memoryId: string) => {
-    Alert.alert(
-      'Delete Memory',
-      'Are you sure you want to delete this memory? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              const result = await DataService.deleteCoreMemory(memoryId);
-              if (result.success) {
-                const updatedMemories = memories.filter(m => m.id !== memoryId);
-                setMemories(updatedMemories);
-                setShowDetailModal(false);
-                setSelectedMemory(null);
-                Alert.alert('Success', 'Memory deleted successfully!');
-              } else {
-                Alert.alert('Error', result.error || 'Failed to delete memory');
-              }
-            } catch (error) {
-              console.error('Error deleting memory:', error);
-              Alert.alert('Error', 'Failed to delete memory');
-            }
-          },
-        },
-      ]
-    );
+    console.log('🎯 deleteMemory function called!');
+    console.log('deleteMemory called with:', {
+      memoryId,
+      isGuestMode,
+      session: !!session,
+      currentMemoriesCount: memories.length
+    });
+
+    // Find the memory to delete
+    const memory = memories.find(m => m.id === memoryId);
+    if (memory) {
+      setMemoryToDelete(memory);
+      setShowDeleteModal(true);
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!memoryToDelete) return;
+
+    console.log('🎯 Delete confirmed for memory:', memoryToDelete.id);
+    
+    try {
+      console.log('Attempting to delete memory:', memoryToDelete.id);
+      const result = await deleteCoreMemory(memoryToDelete.id);
+      console.log('Delete result:', result);
+      console.log('Result success:', result?.success);
+      console.log('Result error:', result?.error);
+      
+      if (result && result.success) {
+        // Update local state immediately
+        const updatedMemories = memories.filter(m => m.id !== memoryToDelete.id);
+        setMemories(updatedMemories);
+        
+        // Close modals and clear selection
+        setShowDetailModal(false);
+        setShowDeleteModal(false);
+        setSelectedMemory(null);
+        setMemoryToDelete(null);
+        
+        console.log('Memory deleted successfully, updated count:', updatedMemories.length);
+        Alert.alert('Success', 'Memory deleted successfully!');
+      } else {
+        console.error('Delete failed:', result?.error);
+        Alert.alert('Error', result?.error || 'Failed to delete memory');
+      }
+    } catch (error) {
+      console.error('Exception in confirmDelete:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+    }
+  };
+
+  const cancelDelete = () => {
+    console.log('🎯 Delete cancelled');
+    setShowDeleteModal(false);
+    setMemoryToDelete(null);
   };
 
   const toggleEmotion = (emotion: string) => {
@@ -255,6 +311,15 @@ export default function CoreMemoryScreen() {
         ? prev.filter(e => e !== emotion)
         : [...prev, emotion]
     );
+  };
+
+  const handleOpenAddModal = () => {
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
+      return;
+    }
+    setShowAddModal(true);
   };
 
   const getSortedMemories = () => {
@@ -279,7 +344,7 @@ export default function CoreMemoryScreen() {
   const renderMemoryCard = (memory: CoreMemory) => (
     <TouchableOpacity
       key={memory.id}
-      style={[styles.memoryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}
+      style={[styles.memoryCard, { backgroundColor: colors.surface, borderColor: colors.border, width: cardWidth }]}
       onPress={() => {
         setSelectedMemory(memory);
         setShowDetailModal(true);
@@ -480,9 +545,13 @@ export default function CoreMemoryScreen() {
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: '#ef4444' }]}
                 onPress={() => {
+                  console.log('🎯 Delete button clicked!');
+                  console.log('selectedMemory:', selectedMemory);
                   if (selectedMemory) {
+                    console.log('🎯 Calling deleteMemory with ID:', selectedMemory.id);
                     deleteMemory(selectedMemory.id);
                   } else {
+                    console.log('❌ No memory selected');
                     Alert.alert('Error', 'No memory selected for deletion');
                   }
                 }}
@@ -667,7 +736,7 @@ export default function CoreMemoryScreen() {
         <View style={styles.actionButtons}>
           <TouchableOpacity
             style={[styles.actionButton, { backgroundColor: colors.primary }]}
-            onPress={() => setShowAddModal(true)}
+            onPress={handleOpenAddModal}
           >
             <SparklesIcon size={16} color={colors.buttonText} />
             <Text style={[styles.actionButtonText, { color: colors.buttonText }]}>
@@ -700,7 +769,7 @@ export default function CoreMemoryScreen() {
           </Text>
           <TouchableOpacity
             style={[styles.emptyButton, { backgroundColor: colors.primary }]}
-            onPress={() => setShowAddModal(true)}
+            onPress={handleOpenAddModal}
           >
             <Text style={[styles.emptyButtonText, { color: colors.buttonText }]}>
               Create Your First Memory
@@ -722,6 +791,48 @@ export default function CoreMemoryScreen() {
       {renderAddModal()}
       {renderDetailView()}
       {renderSlideshow()}
+      
+      {/* Delete Confirmation Modal */}
+      <Modal
+        visible={showDeleteModal}
+        animationType="fade"
+        transparent={true}
+      >
+        <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.modalTitle, { color: colors.text }]}>Delete Memory</Text>
+            <Text style={[styles.modalDescription, { color: colors.textSecondary }]}>
+              Are you sure you want to delete "{memoryToDelete?.title}"? This action cannot be undone.
+            </Text>
+            
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.cancelButton, { borderColor: colors.border }]}
+                onPress={cancelDelete}
+              >
+                <Text style={[styles.modalButtonText, { color: colors.textSecondary }]}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity
+                style={[styles.modalButton, styles.deleteButton, { backgroundColor: '#ef4444' }]}
+                onPress={confirmDelete}
+              >
+                <Text style={[styles.modalButtonText, { color: '#ffffff' }]}>Delete</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      
+      {/* Save Work Modal */}
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </View>
   );
 }
@@ -827,7 +938,7 @@ const styles = {
     gap: 16,
   },
   memoryCard: {
-    width: (Dimensions.get('window').width - 60) / 2,
+    width: 150, // Fixed width, will be overridden in component
     borderRadius: 16,
     padding: 12,
     borderWidth: 1,
@@ -1075,6 +1186,59 @@ const styles = {
     fontWeight: '600' as const,
   },
   slideshowCounter: {
+    fontSize: 16,
+    fontWeight: '600' as const,
+  },
+  
+  // Modal styles
+  modalOverlay: {
+    position: 'absolute' as const,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center' as const,
+    alignItems: 'center' as const,
+    zIndex: 1000,
+  },
+  modalContent: {
+    width: '90%' as const,
+    maxWidth: 400,
+    padding: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold' as const,
+    marginBottom: 20,
+    textAlign: 'center' as const,
+  },
+  modalDescription: {
+    fontSize: 16,
+    textAlign: 'center' as const,
+    marginBottom: 24,
+    lineHeight: 22,
+  },
+  modalActions: {
+    flexDirection: 'row' as const,
+    justifyContent: 'space-between' as const,
+    gap: 12,
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center' as const,
+  },
+  cancelButton: {
+    borderWidth: 1,
+    backgroundColor: 'transparent',
+  },
+  deleteButton: {
+    backgroundColor: '#ef4444',
+  },
+  modalButtonText: {
     fontSize: 16,
     fontWeight: '600' as const,
   },

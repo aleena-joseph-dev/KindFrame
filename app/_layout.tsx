@@ -1,15 +1,15 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { SessionContextProvider } from '@supabase/auth-helpers-react';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
 
 import { PreviousScreenProvider } from '@/components/ui/PreviousScreenContext';
+import { AuthProvider } from '@/contexts/AuthContext';
+import { GuestModeProvider } from '@/contexts/GuestModeContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { SensoryModeProvider } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { supabase } from '@/lib/supabase';
 
 
 
@@ -25,11 +25,12 @@ export default function RootLayout() {
   }
 
   return (
-    <SessionContextProvider supabaseClient={supabase}>
+    <AuthProvider>
       <OnboardingProvider>
-        <SensoryModeProvider>
-          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-            <PreviousScreenProvider>
+        <GuestModeProvider>
+          <SensoryModeProvider>
+            <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+              <PreviousScreenProvider>
               <Stack
                 screenOptions={{
                   contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
@@ -44,10 +45,11 @@ export default function RootLayout() {
                 <Stack.Screen name="+not-found" />
               </Stack>
               <StatusBar style="auto" />
-            </PreviousScreenProvider>
-          </ThemeProvider>
-        </SensoryModeProvider>
+                          </PreviousScreenProvider>
+            </ThemeProvider>
+          </SensoryModeProvider>
+        </GuestModeProvider>
       </OnboardingProvider>
-    </SessionContextProvider>
+    </AuthProvider>
   );
 }

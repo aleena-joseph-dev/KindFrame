@@ -1,3 +1,4 @@
+import { useGuestMode } from '@/contexts/GuestModeContext';
 import { AuthService } from '@/services/authService';
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
@@ -21,6 +22,16 @@ export const SensoryModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [mode, setMode] = useState<SensoryMode>('normal');
   const [isLoading, setIsLoading] = useState(true);
   const [modeJustSet, setModeJustSet] = useState(false);
+  
+  // Safely get guest mode state with error handling
+  let isGuestMode = false;
+  try {
+    const guestModeContext = useGuestMode();
+    isGuestMode = guestModeContext?.isGuestMode || false;
+  } catch (error) {
+    console.log('⚠️ GUEST MODE CONTEXT NOT AVAILABLE: Using default guest mode state');
+    isGuestMode = false;
+  }
 
 
   // Function to load saved mode from database
@@ -32,6 +43,13 @@ export const SensoryModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
       if (modeJustSet) {
         console.log('⚠️ MODE JUST SET: Skipping database load to preserve selected mode');
         setModeJustSet(false);
+        setIsLoading(false);
+        return;
+      }
+      
+      // Check if user is in guest mode
+      if (isGuestMode) {
+        console.log('✅ GUEST MODE: User is in guest mode, using default mode');
         setIsLoading(false);
         return;
       }

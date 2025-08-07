@@ -3,6 +3,7 @@ import { DataService, CalendarEvent as DatabaseCalendarEvent } from '@/services/
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,10 +14,13 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 import { TopBar } from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { useSession, useSessionContext, useSupabaseClient } from '@supabase/auth-helpers-react';
+import { supabase } from '@/lib/supabase';
 
 interface CalendarEvent {
   id: string;
@@ -50,9 +54,19 @@ export default function CalendarScreen() {
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
-  const session = useSession();
-  const supabase = useSupabaseClient();
-  const { isLoading: authLoading } = useSessionContext();
+  const { session, loading: authLoading } = useAuth();
+  const { 
+    isGuestMode, 
+    createCalendarEvent, 
+    deleteCalendarEvent,
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -75,16 +89,6 @@ export default function CalendarScreen() {
   useEffect(() => {
     loadEvents();
     checkGoogleCalendarConnection();
-    
-    // Debug: Check all localStorage tokens
-    const keepToken = localStorage.getItem('google_keep_token');
-    const calendarToken = localStorage.getItem('google_calendar_token');
-    const providerToken = localStorage.getItem('google_provider_token');
-    
-    console.log('🔍 DEBUG: Token status in localStorage:');
-    console.log('🔍 DEBUG: google_keep_token exists:', !!keepToken);
-    console.log('🔍 DEBUG: google_calendar_token exists:', !!calendarToken);
-    console.log('🔍 DEBUG: google_provider_token exists:', !!providerToken);
   }, [session, currentDate]); // Re-check when session or currentDate changes
 
   // Load synced Google Calendar events when connection status changes
@@ -96,13 +100,9 @@ export default function CalendarScreen() {
       const refreshSession = async () => {
         try {
           const { data, error } = await supabase.auth.refreshSession();
-          if (error) {
-            console.error('🔍 Session refresh error:', error);
-          } else {
-            console.log('🔍 Session refreshed successfully');
-          }
+          // Handle session refresh silently
         } catch (error) {
-          console.error('🔍 Error refreshing session:', error);
+          // Handle error silently
         }
       };
       
@@ -114,6 +114,7 @@ export default function CalendarScreen() {
     const today = new Date();
     const todayString = formatDateForStorage(today);
     setSelectedDate(todayString);
+    setNewEventDate(todayString); // Set default date for new events
   }, []);
 
   const loadEvents = async () => {
@@ -122,17 +123,24 @@ export default function CalendarScreen() {
       const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
       
+      console.log('Loading events for period:', {
+        start: currentMonthStart.toISOString(),
+        end: currentMonthEnd.toISOString()
+      });
+      
       const result = await DataService.getCalendarEvents(
         currentMonthStart.toISOString(),
         currentMonthEnd.toISOString()
       );
       
+      console.log('Load events result:', result);
+      
       if (result.success && result.data) {
         // Convert database events to local event format
         const convertedEvents = (result.data as DatabaseCalendarEvent[]).map(dbEvent => ({
           id: dbEvent.id,
-          title: dbEvent.title,
-          description: dbEvent.description,
+          title: dbEvent.title || '',
+          description: dbEvent.description || '',
           date: new Date(dbEvent.start_time).toISOString().split('T')[0], // YYYY-MM-DD format
           time: new Date(dbEvent.start_time).toTimeString().slice(0, 5), // HH:MM format
           type: 'event' as const, // Default type for database events
@@ -141,14 +149,16 @@ export default function CalendarScreen() {
           start_time: dbEvent.start_time,
           end_time: dbEvent.end_time,
           all_day: dbEvent.all_day,
-          location: dbEvent.location,
-          color: dbEvent.color,
-          sync_source: dbEvent.sync_source,
-          external_id: dbEvent.external_id
+          location: dbEvent.location || '',
+          color: dbEvent.color || '',
+          sync_source: dbEvent.sync_source || '',
+          external_id: dbEvent.external_id || ''
         }));
+        
+        console.log('Converted events:', convertedEvents);
         setEvents(convertedEvents);
       } else {
-        console.error('Error loading events:', result.error);
+        console.log('No events found or error:', result.error);
         setEvents([]);
       }
     } catch (error) {
@@ -161,9 +171,8 @@ export default function CalendarScreen() {
     try {
       // This function is now handled by individual CRUD operations
       // We'll update the database directly in handleAddEvent, handleUpdateEvent, etc.
-      console.log('Events saved to database');
     } catch (error) {
-      console.error('Error saving events:', error);
+      // Handle error silently
     }
   };
 
@@ -183,19 +192,11 @@ export default function CalendarScreen() {
   // Google Calendar Integration
   const checkGoogleCalendarConnection = async () => {
     try {
-      console.log('Checking Google Calendar connection...');
-      console.log('🔍 Current session:', session);
-      console.log('🔍 Session user:', session?.user);
-      
       // Get provider token from localStorage (Calendar-specific)
       const providerToken = localStorage.getItem('google_calendar_token');
-      console.log('🔍 Provider token exists:', !!providerToken);
-      console.log('🔍 Provider token from localStorage:', providerToken ? providerToken.substring(0, 20) + '...' : 'NO TOKEN');
       
       // Check if user has a Supabase session and provider token
       if (session && session.user && providerToken) {
-        console.log('✅ User authenticated with Google Calendar access');
-        console.log('🔍 User email:', session.user.email);
         setIsGoogleCalendarConnected(true);
         
         // If connected, fetch events with a small delay to ensure session is ready
@@ -203,15 +204,11 @@ export default function CalendarScreen() {
           fetchGoogleCalendarEvents();
         }, 1000);
       } else if (session && session.user) {
-        console.log('✅ User authenticated but no Google Calendar access yet');
-        console.log('🔍 User email:', session.user.email);
         setIsGoogleCalendarConnected(false);
       } else {
-        console.log('❌ No Supabase session found - user needs to authenticate first');
         setIsGoogleCalendarConnected(false);
       }
     } catch (error) {
-      console.error('Error checking Google Calendar connection:', error);
       setIsGoogleCalendarConnected(false);
     }
   };
@@ -227,26 +224,15 @@ export default function CalendarScreen() {
 
   const handleConnectGoogleCalendar = async () => {
     try {
-      console.log('🔍 Connect button clicked!');
-      console.log('🔍 Supabase client:', supabase);
-      console.log('🔍 Current session:', session);
-      
       if (!supabase) {
-        console.error('❌ Supabase client is undefined!');
         return;
       }
       
       if (!supabase.auth) {
-        console.error('❌ Supabase auth is undefined!');
         return;
       }
       
       setShowGoogleCalendarSync(false);
-      
-      console.log('🔍 About to call supabase.auth.signInWithOAuth...');
-      console.log('🔍 This will authenticate user and request Google Calendar access');
-      console.log('🔍 Current URL:', window.location.href);
-      console.log('🔍 Redirect URL:', window.location.origin + '/auth-callback');
       
       // Use Supabase OAuth with Calendar scopes
       // Force consent screen to ensure we get the right scopes
@@ -262,20 +248,9 @@ export default function CalendarScreen() {
         },
       });
       
-      console.log('🔍 OAuth response data:', data);
-      console.log('🔍 OAuth response error:', error);
-      
-      if (error) {
-        console.error('Google OAuth error:', error);
-      } else {
-        console.log('🔍 OAuth initiated successfully!');
-        console.log('🔍 User will be redirected to Google OAuth...');
-        console.log('🔍 OAuth URL:', data?.url);
-      }
-      
       // The OAuth flow will redirect to auth-callback
     } catch (error) {
-      console.error('Error connecting Google Calendar:', error);
+      // Handle error silently
     }
   };
 
@@ -285,8 +260,6 @@ export default function CalendarScreen() {
 
   const handleRefreshCalendar = async () => {
     try {
-      console.log('🔍 Refreshing calendar events...');
-      
       // Reload events from database
       await loadEvents();
       
@@ -294,72 +267,54 @@ export default function CalendarScreen() {
       if (isGoogleCalendarConnected) {
         await fetchGoogleCalendarEvents();
       }
-      
-      console.log('🔍 Calendar events refreshed successfully');
     } catch (error) {
-      console.error('Error refreshing calendar events:', error);
+      // Handle error silently
     }
   };
 
   // Fetch Google Calendar events using session.provider_token
   const fetchGoogleCalendarEvents = async () => {
     try {
-      console.log('🔍 Fetching Google Calendar events using AuthService...');
-      
       // Use AuthService to fetch Google Calendar events
       const events = await AuthService.fetchGoogleCalendarEvents();
-      
-      console.log('🔍 Fetched Google Calendar events count:', events.length);
       
       // Sync events to database using DataService
       try {
         const syncResult = await DataService.syncGoogleCalendarEvents(events);
         if (syncResult.success) {
           const syncedEvents = syncResult.data as DatabaseCalendarEvent[];
-          console.log('✅ Google Calendar events synced to database:', syncedEvents?.length || 0);
           // Reload events from database to show synced events
           await loadEvents();
         } else {
-          console.error('❌ Failed to sync Google Calendar events:', syncResult.error);
-          
           // Handle authentication error specifically
           if (syncResult.error === 'User not authenticated') {
-            console.log('🔍 Authentication error detected, retrying in 2 seconds...');
             setTimeout(async () => {
               try {
                 const retryResult = await DataService.syncGoogleCalendarEvents(events);
                 if (retryResult.success) {
                   const syncedEvents = retryResult.data as DatabaseCalendarEvent[];
-                  console.log('✅ Google Calendar events synced to database (retry):', syncedEvents?.length || 0);
                   await loadEvents();
-                } else {
-                  console.error('❌ Retry failed:', retryResult.error);
                 }
               } catch (retryError) {
-                console.error('❌ Retry error:', retryError);
+                // Handle retry error silently
               }
             }, 2000);
           }
         }
       } catch (syncError) {
-        console.error('❌ Error syncing Google Calendar events:', syncError);
+        // Handle sync error silently
       }
     } catch (error) {
-      console.error('Error fetching Google Calendar events:', error);
-      
       // If the API call fails, it might mean the token is invalid or has wrong scopes
       if (error.message) {
         if (error.message.includes('No Google Calendar access token found')) {
-          console.log('🔍 Token not found, setting connection to false');
           setIsGoogleCalendarConnected(false);
           // Clear the invalid token
           localStorage.removeItem('google_calendar_token');
         } else if (error.message.includes('insufficient_scope') || error.message.includes('insufficientPermissions')) {
-          console.log('🔍 Token has insufficient scopes, clearing and re-authenticating');
           setIsGoogleCalendarConnected(false);
           // Clear the token with wrong scopes
           localStorage.removeItem('google_calendar_token');
-          console.log('🔍 Scope error: Token doesn\'t have Calendar permissions');
         }
       }
     }
@@ -404,34 +359,104 @@ export default function CalendarScreen() {
   };
 
   const handleAddEvent = async () => {
+    console.log('handleAddEvent called with:', {
+      title: newEventTitle,
+      date: newEventDate,
+      time: newEventTime,
+      description: newEventDescription,
+      type: newEventType,
+      isGuestMode,
+      session: !!session
+    });
+
     if (!newEventTitle.trim() || !newEventDate) {
+      console.log('Validation failed: missing title or date');
+      return;
+    }
+
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      console.log('User in guest mode, prompting sign in');
+      promptSignIn();
       return;
     }
 
     try {
-      // Convert local date/time to ISO strings for database
-      const startDateTime = newEventTime 
-        ? new Date(`${newEventDate}T${newEventTime}:00`)
-        : new Date(`${newEventDate}T00:00:00`);
-      
-      const endDateTime = new Date(startDateTime);
-      endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
+      // Validate date format
+      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+      if (!dateRegex.test(newEventDate)) {
+        Alert.alert('Error', 'Please enter a valid date in YYYY-MM-DD format');
+        return;
+      }
 
-      const result = await DataService.createCalendarEvent({
+      // Convert local date/time to ISO strings for database
+      // Fix: Ensure proper timezone handling and date parsing
+      let startDateTime: Date;
+      let endDateTime: Date;
+      
+      if (newEventTime) {
+        // Validate time format
+        const timeRegex = /^\d{1,2}:\d{2}$/;
+        if (!timeRegex.test(newEventTime)) {
+          Alert.alert('Error', 'Please enter a valid time in HH:MM format');
+          return;
+        }
+
+        // If time is specified, create a proper datetime
+        const [hours, minutes] = newEventTime.split(':').map(Number);
+        
+        // Validate hours and minutes
+        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
+          Alert.alert('Error', 'Please enter a valid time (hours: 0-23, minutes: 0-59)');
+          return;
+        }
+        
+        startDateTime = new Date(newEventDate + 'T00:00:00');
+        startDateTime.setHours(hours, minutes, 0, 0);
+        
+        endDateTime = new Date(startDateTime);
+        endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
+      } else {
+        // If no time specified, create all-day event
+        startDateTime = new Date(newEventDate + 'T00:00:00');
+        startDateTime.setHours(0, 0, 0, 0);
+        
+        endDateTime = new Date(newEventDate + 'T23:59:59');
+        endDateTime.setHours(23, 59, 59, 999);
+      }
+
+      // Validate that dates are valid before converting to ISO string
+      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
+        Alert.alert('Error', 'Invalid date or time values. Please check your input.');
+        return;
+      }
+
+      console.log('Creating calendar event with:', {
+        title: newEventTitle.trim(),
+        start_time: startDateTime.toISOString(),
+        end_time: endDateTime.toISOString(),
+        all_day: !newEventTime
+      });
+
+      const eventData = {
         title: newEventTitle.trim(),
         description: newEventDescription.trim() || undefined,
         start_time: startDateTime.toISOString(),
         end_time: endDateTime.toISOString(),
         all_day: !newEventTime, // All day if no time specified
         color: getEventTypeColor(newEventType)
-      });
+      };
 
-      if (result.success && result.data) {
+      console.log('Calling createCalendarEvent with:', eventData);
+      const result = await createCalendarEvent(eventData);
+      console.log('createCalendarEvent result:', result);
+
+      if (result && result.success && result.data) {
         const dbEvent = result.data as DatabaseCalendarEvent;
         const newEvent: CalendarEvent = {
           id: dbEvent.id,
-          title: dbEvent.title,
-          description: dbEvent.description,
+          title: dbEvent.title || '',
+          description: dbEvent.description || '',
           date: new Date(dbEvent.start_time).toISOString().split('T')[0],
           time: new Date(dbEvent.start_time).toTimeString().slice(0, 5),
           type: newEventType,
@@ -440,11 +465,13 @@ export default function CalendarScreen() {
           start_time: dbEvent.start_time,
           end_time: dbEvent.end_time,
           all_day: dbEvent.all_day,
-          location: dbEvent.location,
-          color: dbEvent.color,
-          sync_source: dbEvent.sync_source,
-          external_id: dbEvent.external_id
+          location: dbEvent.location || '',
+          color: dbEvent.color || '',
+          sync_source: dbEvent.sync_source || '',
+          external_id: dbEvent.external_id || ''
         };
+
+        console.log('Calendar event created successfully:', newEvent);
 
         const updatedEvents = [...events, newEvent];
         setEvents(updatedEvents);
@@ -455,11 +482,16 @@ export default function CalendarScreen() {
         setNewEventTime('');
         setNewEventType('event');
         setShowAddEvent(false);
+        
+        // Reload events to ensure UI is updated
+        await loadEvents();
       } else {
-        console.error('Failed to create event:', result.error);
+        console.error('Failed to create calendar event:', result?.error);
+        Alert.alert('Error', 'Failed to create event. Please try again.');
       }
     } catch (error) {
-      console.error('Error creating event:', error);
+      console.error('Exception in handleAddEvent:', error);
+      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
     }
   };
 
@@ -472,22 +504,35 @@ export default function CalendarScreen() {
   };
 
   const handleDeleteEvent = (eventId: string) => {
-    const deleteEvent = async () => {
-      try {
-        const result = await DataService.deleteCalendarEvent(eventId);
-        
-        if (result.success) {
-          const updatedEvents = events.filter(event => event.id !== eventId);
-          setEvents(updatedEvents);
-        } else {
-          console.error('Failed to delete event:', result.error);
-        }
-      } catch (error) {
-        console.error('Error deleting event:', error);
-      }
-    };
-    
-    deleteEvent();
+    Alert.alert(
+      'Delete Event',
+      'Are you sure you want to delete this event?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('Attempting to delete calendar event:', eventId);
+              const result = await deleteCalendarEvent(eventId);
+              
+              if (result && result.success) {
+                const updatedEvents = events.filter(event => event.id !== eventId);
+                setEvents(updatedEvents);
+                console.log('Calendar event deleted successfully');
+              } else {
+                console.error('Failed to delete calendar event:', result?.error);
+                Alert.alert('Error', 'Failed to delete event. Please try again.');
+              }
+            } catch (error) {
+              console.error('Error deleting calendar event:', error);
+              Alert.alert('Error', 'Failed to delete event. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handlePreviousMonth = () => {
@@ -598,7 +643,7 @@ export default function CalendarScreen() {
 
         {/* Calendar Days */}
         <View style={styles.daysGrid}>
-          {days.map((day) => (
+          {days && days.map((day) => day && (
             <TouchableOpacity
               key={day.date}
               style={[
@@ -618,11 +663,11 @@ export default function CalendarScreen() {
                          day.isCurrentMonth ? colors.text : colors.textSecondary 
                 }
               ]}>
-                {day.dayNumber}
+                {day.dayNumber && typeof day.dayNumber === 'number' ? String(day.dayNumber) : ''}
               </Text>
               
               {/* Event Indicators */}
-              {day.events.length > 0 && (
+              {day.events && day.events.length > 0 && (
                 <View style={styles.eventIndicators}>
                   {day.events.slice(0, 3).map((event, index) => (
                     <View
@@ -633,9 +678,9 @@ export default function CalendarScreen() {
                       ]}
                     />
                   ))}
-                  {day.events.length > 3 && (
+                  {day.events && day.events.length > 3 && (
                     <Text style={[styles.moreEvents, { color: colors.textSecondary }]}>
-                      +{day.events.length - 3}
+                      +{String(day.events.length - 3)}
                     </Text>
                   )}
                 </View>
@@ -677,7 +722,7 @@ export default function CalendarScreen() {
                   <View style={styles.eventHeader}>
                     <View style={[styles.eventTypeIndicator, { backgroundColor: getEventTypeColor(event.type) }]} />
                     <Text style={[styles.eventTitle, { color: colors.text }]}>
-                      {event.title}
+                      {event.title || 'Untitled Event'}
                     </Text>
                     <TouchableOpacity
                       style={styles.deleteEventButton}
@@ -687,13 +732,13 @@ export default function CalendarScreen() {
                     </TouchableOpacity>
                   </View>
                   
-                  {event.description && (
+                  {event.description && event.description.trim() && (
                     <Text style={[styles.eventDescription, { color: colors.textSecondary }]}>
                       {event.description}
                     </Text>
                   )}
                   
-                  {event.time && (
+                  {event.time && event.time.trim() && (
                     <Text style={[styles.eventTime, { color: colors.textSecondary }]}>
                       {event.time}
                     </Text>
@@ -844,6 +889,16 @@ export default function CalendarScreen() {
           </View>
         </View>
       )}
+      
+      {/* Save Work Modal */}
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }

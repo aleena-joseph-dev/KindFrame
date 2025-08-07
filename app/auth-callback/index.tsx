@@ -1,4 +1,6 @@
-import { useSession, useSupabaseClient } from '@supabase/auth-helpers-react';
+import { useGuestMode } from '@/contexts/GuestModeContext';
+import { supabase } from '@/lib/supabase';
+import { useSession } from '@supabase/auth-helpers-react';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
@@ -6,10 +8,11 @@ import { ActivityIndicator, Text, View } from 'react-native';
 export default function AuthCallback() {
   const router = useRouter();
   const session = useSession();
-  const supabase = useSupabaseClient();
+  const { isGuestMode, migrateGuestDataToUser } = useGuestMode();
   
   // Track if we've already processed the callback to avoid double processing
   const [hasProcessed, setHasProcessed] = React.useState(false);
+  const [isMigrating, setIsMigrating] = React.useState(false);
 
   useEffect(() => {
     const handleAuthCallback = async () => {
@@ -22,6 +25,13 @@ export default function AuthCallback() {
       setHasProcessed(true);
       try {
         console.log('🔍 Processing Supabase OAuth callback...');
+        
+        // Check if supabase client is available
+        if (!supabase || !supabase.auth) {
+          console.error('❌ Supabase client is not available');
+          router.replace('/');
+          return;
+        }
         
         // Get the current URL
         const url = window.location.href;
@@ -74,7 +84,16 @@ export default function AuthCallback() {
           
           // For OAuth callbacks, we need to let Supabase process the URL
           // The URL contains the tokens that need to be processed
-          const { data, error } = await supabase.auth.getSession();
+          let data, error;
+          try {
+            const result = await supabase.auth.getSession();
+            data = result.data;
+            error = result.error;
+          } catch (sessionError) {
+            console.error('❌ Error getting session:', sessionError);
+            error = sessionError;
+            data = { session: null };
+          }
           
           // If no session yet, try to set the session from the URL
           if (!data.session && url.includes('access_token=')) {
@@ -219,6 +238,21 @@ export default function AuthCallback() {
             console.log('✅ Existing session found');
             console.log('🔍 User:', data.session.user.email);
             console.log('🔍 Provider token exists:', !!data.session.provider_token);
+            
+            // Check if user was in guest mode and migrate data
+            if (isGuestMode) {
+              try {
+                setIsMigrating(true);
+                console.log('🔍 Migrating guest data to user account...');
+                await migrateGuestDataToUser(data.session.user.id);
+                console.log('🔍 Guest data migration completed');
+              } catch (error) {
+                console.error('❌ Error migrating guest data:', error);
+              } finally {
+                setIsMigrating(false);
+              }
+            }
+            
             router.replace('/(tabs)');
           } else {
             console.log('⚠️ No session found, redirecting to home page');
@@ -248,7 +282,7 @@ export default function AuthCallback() {
         color: '#333',
         textAlign: 'center'
       }}>
-        Processing authentication...
+        {isMigrating ? 'Migrating your data...' : 'Processing authentication...'}
       </Text>
     </View>
   );

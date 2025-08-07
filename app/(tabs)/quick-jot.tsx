@@ -1,23 +1,20 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import {
-  Alert,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
-} from 'react-native';
+import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AudioIcon from '@/components/ui/AudioIcon';
+import BreakDownIcon from '@/components/ui/BreakDownIcon';
 import { OptionsCard } from '@/components/ui/OptionsCard';
 import { PopupBg } from '@/components/ui/PopupBg';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 import { TopBar } from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { AIService } from '@/services/aiService';
 
 interface QuickJotEntry {
   id: string;
@@ -32,10 +29,25 @@ export default function QuickJotScreen() {
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { 
+    isGuestMode, 
+    createQuickJot, 
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
+  const { session } = useAuth();
   const [thoughts, setThoughts] = useState('');
   const [showSaveOptions, setShowSaveOptions] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [aiSubtasks, setAiSubtasks] = useState<string[]>([]);
+  const [isAILoading, setIsAILoading] = useState(false);
+  const [detailLevel, setDetailLevel] = useState<'few' | 'many'>('few');
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -53,28 +65,101 @@ export default function QuickJotScreen() {
 
   const handleVoiceInput = () => {
     // Mock voice recording functionality
-    Alert.alert(
-      'Voice Input',
-      'Voice recording would be implemented here. For now, this is a mock feature.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Mock Transcribe',
-          onPress: () => {
-            const mockTranscription = "This is a mock transcription of voice input. You can edit this text as needed.";
-            setThoughts(mockTranscription);
-          },
-        },
-      ]
-    );
+    const mockTranscription = "This is a mock transcription of voice input. You can edit this text as needed.";
+    setThoughts(mockTranscription);
   };
 
   const handleSave = () => {
     if (!thoughts.trim()) {
-      Alert.alert('Empty Thoughts', 'Please write something before saving.');
       return;
     }
     setShowSaveOptions(true);
+  };
+
+  const handleAIBreakdown = async () => {
+    if (!thoughts.trim()) {
+      return;
+    }
+
+          // Check if user is in guest mode and show popup
+      if (isGuestMode && !session) {
+        promptSignIn();
+        return;
+      }
+
+    setIsAILoading(true);
+    try {
+      const result = await AIService.getTaskBreakdown(thoughts.trim(), detailLevel);
+
+      if (result.success && result.formattedBreakdown) {
+        // Replace the input text with the formatted breakdown
+        setThoughts(result.formattedBreakdown);
+        setAiSubtasks(result.subtasks);
+        console.log('✅ AI breakdown successful:', result.subtasks.length, 'subtasks');
+      } else {
+        console.error('❌ AI breakdown failed:', result.error);
+        // You could show a toast or alert here
+      }
+    } catch (error) {
+      console.error('❌ AI breakdown error:', error);
+    } finally {
+      setIsAILoading(false);
+    }
+  };
+
+  const handleSaveSubtasksAsTodos = async () => {
+    try {
+      // Save each subtask as a todo
+      for (const subtask of aiSubtasks) {
+        await createQuickJot({
+          content: subtask,
+          type: 'todo',
+          category: 'AI Generated'
+        });
+      }
+      
+      setAiSubtasks([]);
+      setThoughts('');
+      console.log('✅ All subtasks saved as todos');
+      // You could show a success message here
+    } catch (error) {
+      console.error('❌ Error saving subtasks:', error);
+    }
+  };
+
+  const handleSaveIndividualSubtask = async (subtask: string, type: QuickJotEntry['type']) => {
+    try {
+      await createQuickJot({
+        content: subtask,
+        type,
+        category: 'AI Generated'
+      });
+      
+      console.log('✅ Individual subtask saved:', subtask, 'as', type);
+      // You could show a success message here
+    } catch (error) {
+      console.error('❌ Error saving individual subtask:', error);
+    }
+  };
+
+  const handleSaveAllSubtasks = async (type: QuickJotEntry['type']) => {
+    try {
+      // Save each subtask as the specified type
+      for (const subtask of aiSubtasks) {
+        await createQuickJot({
+          content: subtask,
+          type,
+          category: 'AI Generated'
+        });
+      }
+      
+      setAiSubtasks([]);
+      setThoughts('');
+      console.log('✅ All subtasks saved as', type);
+      // You could show a success message here
+    } catch (error) {
+      console.error('❌ Error saving all subtasks as', type, ':', error);
+    }
   };
 
   const handleSaveAsType = async (type: QuickJotEntry['type']) => {
@@ -96,30 +181,27 @@ export default function QuickJotScreen() {
         createdAt: new Date(),
       };
 
-      // Save to appropriate storage based on type
-      const storageKey = `quickJot_${type}`;
-      const existingEntries = await AsyncStorage.getItem(storageKey);
-      const entries = existingEntries ? JSON.parse(existingEntries) : [];
-      entries.unshift(entry);
-      await AsyncStorage.setItem(storageKey, JSON.stringify(entries));
+      // Check if user is in guest mode and show popup
+      if (isGuestMode && !session) {
+        promptSignIn(
+          "Save Your Quick Jot",
+          "To save your quick jot and access it across devices, please create an account or sign in.",
+          "quick jots"
+        );
+        setShowSaveOptions(false);
+        return;
+      }
 
-      // Also save to general quick jot storage
-      const allEntries = await AsyncStorage.getItem('quickJot_all');
-      const allQuickJots = allEntries ? JSON.parse(allEntries) : [];
-      allQuickJots.unshift(entry);
-      await AsyncStorage.setItem('quickJot_all', JSON.stringify(allQuickJots));
+      // Use guest data hook for saving
+      await createQuickJot(entry);
 
       setThoughts('');
       setShowSaveOptions(false);
       
-      Alert.alert(
-        'Saved Successfully',
-        `Your thoughts have been saved as ${getTypeDisplayName(type)}.`,
-        [{ text: 'OK', onPress: () => router.back() }]
-      );
+      console.log(`✅ Quick jot saved as ${getTypeDisplayName(type)}`);
+      router.back();
     } catch (error) {
       console.error('Error saving quick jot:', error);
-      Alert.alert('Error', 'Failed to save your thoughts. Please try again.');
     }
   };
 
@@ -137,31 +219,24 @@ export default function QuickJotScreen() {
 
   const handleInfo = () => {
     console.log('Info button pressed'); // Debug log
-    setTimeout(() => {
-      Alert.alert(
-        'Quick Jot',
-        'This is a quiet space to release thoughts or emotions without judgment. Write freely, then choose how to save or use your thoughts. Perfect for brain dumps, ideas, or emotional processing.',
-        [{ text: 'OK' }]
-      );
-    }, 100);
+    console.log('Quick Jot: This is a quiet space to release thoughts or emotions without judgment. Write freely, then choose how to save or use your thoughts. Perfect for brain dumps, ideas, or emotional processing.');
   };
+
+
 
   const handleQuickJotBack = () => {
     if (thoughts.trim()) {
-      Alert.alert(
-        'Unsaved Thoughts',
-        'You have unsaved thoughts. Do you want to save them before leaving?',
-        [
-          { text: 'Discard', style: 'destructive', onPress: () => {
-            handleBack();
-          }},
-          { text: 'Save', onPress: () => setShowSaveOptions(true) },
-          { text: 'Cancel', style: 'cancel' },
-        ]
-      );
-    } else {
-      handleBack();
+      // In guest mode, show popup instead of auto-saving
+      if (isGuestMode && !session) {
+        promptSignIn(
+          "Save Your Thoughts",
+          "To save your thoughts and access them later, please create an account or sign in.",
+          "thoughts"
+        );
+        return;
+      }
     }
+    handleBack();
   };
 
   return (
@@ -196,6 +271,20 @@ export default function QuickJotScreen() {
           onPress={handleVoiceInput}
         >
           <AudioIcon size={24} color={colors.buttonText} />
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.aiButton,
+            {
+              backgroundColor: colors.primary,
+              opacity: isAILoading ? 0.6 : 1,
+            },
+          ]}
+          onPress={handleAIBreakdown}
+          disabled={!thoughts.trim() || isAILoading}
+        >
+          <BreakDownIcon size={24} color={colors.background} />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -293,6 +382,18 @@ export default function QuickJotScreen() {
           </View>
         </View>
       </PopupBg>
+
+
+
+      {/* Save Work Modal */}
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }
@@ -375,6 +476,15 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
   },
+  aiButton: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+
   modalTitle: {
     fontSize: 18,
     fontWeight: 'bold',
@@ -383,6 +493,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     width: '100%',
   },
+
   saveOptionsList: {
     width: '100%',
     marginBottom: 20,

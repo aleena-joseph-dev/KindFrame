@@ -620,12 +620,20 @@ export class AuthService {
     try {
       console.log('👤 GETTING CURRENT USER: Attempting to get current authenticated user');
       
-      const { data: { user }, error: authError } = await supabase.auth.getUser();
+      // Use getSession instead of getUser to avoid AuthSessionMissingError
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       
-      if (authError) {
-        console.error('❌ AUTH ERROR: Error getting authenticated user:', authError);
+      if (sessionError) {
+        console.error('❌ SESSION ERROR: Error getting session:', sessionError);
         return null;
       }
+      
+      if (!session) {
+        console.log('⚠️ NO SESSION: No active authentication session');
+        return null;
+      }
+      
+      const user = session.user;
       
       if (user) {
         console.log('✅ AUTH USER FOUND: Getting current user by user_id:', user.id);

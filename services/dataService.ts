@@ -312,9 +312,15 @@ export class DataService {
 
   static async getCoreMemories(limit = 50, offset = 0): Promise<DataResult<CoreMemory>> {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+
       const { data, error, count } = await supabase
         .from('core_memories')
         .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);
 
@@ -327,16 +333,42 @@ export class DataService {
   }
 
   static async deleteCoreMemory(id: string): Promise<DataResult<void>> {
+    console.log('=== DataService.deleteCoreMemory START ===');
+    console.log('Memory ID to delete:', id);
+    
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      console.log('Current user ID:', user?.id);
+      console.log('Full user object:', user);
+      
+      if (!user) {
+        console.log('❌ No user found, returning error');
+        return { success: false, error: 'User not authenticated' };
+      }
+
+      console.log('✅ User authenticated, attempting delete...');
+      console.log('Delete query: id =', id, 'AND user_id =', user.id);
+      
       const { error } = await supabase
         .from('core_memories')
         .delete()
-        .eq('id', id);
+        .eq('id', id)
+        .eq('user_id', user.id);
 
-      if (error) throw error;
+      console.log('Supabase delete result error:', error);
+      console.log('Error details:', error?.message, error?.details, error?.hint);
+      
+      if (error) {
+        console.log('❌ Delete failed with error:', error);
+        throw error;
+      }
+      
+      console.log('✅ Delete successful');
+      console.log('=== DataService.deleteCoreMemory END ===');
       return { success: true };
     } catch (error) {
-      console.error('Error deleting core memory:', error);
+      console.error('❌ Exception in deleteCoreMemory:', error);
+      console.log('=== DataService.deleteCoreMemory END WITH ERROR ===');
       return { success: false, error: error.message };
     }
   }
@@ -371,9 +403,15 @@ export class DataService {
 
   static async getNotes(limit = 50, offset = 0, category?: string): Promise<DataResult<Note>> {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+
       let query = supabase
         .from('notes')
         .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
         .order('updated_at', { ascending: false });
 
       if (category) {
@@ -531,9 +569,15 @@ export class DataService {
 
   static async getCalendarEvents(startDate?: string, endDate?: string): Promise<DataResult<CalendarEvent>> {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return { success: false, error: 'User not authenticated' };
+      }
+
       let query = supabase
         .from('calendar_events')
         .select('*')
+        .eq('user_id', user.id)
         .order('start_time', { ascending: true });
 
       if (startDate && endDate) {

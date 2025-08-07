@@ -1,22 +1,26 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SensoryColors } from '@/constants/Colors';
+import { useGuestMode } from '@/contexts/GuestModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import { useSession } from '@supabase/auth-helpers-react';
 
 export default function SignInScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
+  const { isGuestMode } = useGuestMode();
+  const session = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   // const [isAppleLoading, setIsAppleLoading] = useState(false); // Commented out
   // const [isNotionLoading, setIsNotionLoading] = useState(false); // Commented out - keeping functionality for future use
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const colors = SensoryColors['calm'];
+  const colors = SensoryColors['normal'];
 
   useEffect(() => {
     // Check if user is already signed in
@@ -42,23 +46,12 @@ export default function SignInScreen() {
       
       if (result.success) {
         // OAuth flow will be handled by deep linking
-        Alert.alert(
-          'Google Sign In', 
-          'Redirecting to Google... Please complete the sign-in process.',
-          [{ text: 'OK' }]
-        );
+        console.log('Google Sign In: Redirecting to Google... Please complete the sign-in process.');
       } else {
-        Alert.alert(
-          'Sign-in Error', 
-          result.error?.message || 'Failed to sign in with Google. Please try again.'
-        );
+        console.error('Sign-in Error:', result.error?.message || 'Failed to sign in with Google. Please try again.');
       }
     } catch (error) {
       console.error('Google sign-in error:', error);
-      Alert.alert(
-        'Sign-in Error', 
-        'Failed to sign in with Google. Please try again.'
-      );
     } finally {
       setIsGoogleLoading(false);
     }
@@ -178,16 +171,16 @@ export default function SignInScreen() {
         </View>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.appName, { color: colors.text }]}>KindFrame</Text>
-          <Text style={[styles.tagline, { color: colors.textSecondary }]}>Structure that respects your brain and your bandwidth.</Text>
+          <Text style={[styles.appName, { color: '#000000' }]}>KindFrame</Text>
+          <Text style={[styles.tagline, { color: '#000000' }]}>Structure that respects your brain and your bandwidth.</Text>
         </View>
 
         {/* Greeting */}
         <View style={styles.greeting}>
-          <Text style={[styles.greetingText, { color: colors.text }]}>
+          <Text style={[styles.greetingText, { color: '#000000' }]}>
             Hey again. Ready to roll at your pace?
           </Text>
-          <Text style={[styles.loginTitle, { color: colors.text }]}>
+          <Text style={[styles.loginTitle, { color: '#000000' }]}>
             Log in to KindFrame
           </Text>
         </View>
@@ -231,39 +224,41 @@ export default function SignInScreen() {
           <TouchableOpacity
             style={[
               styles.socialButton, 
-              { backgroundColor: colors.buttonBackground },
+              { backgroundColor: colors.primary },
               isGoogleLoading && styles.socialButtonDisabled
             ]}
             onPress={handleGoogleSignIn}
             disabled={isGoogleLoading || isLoading}
             activeOpacity={0.8}
           >
-            <Text style={[styles.socialButtonIcon, { color: colors.buttonText }]}>G</Text>
-            <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
+            <Text style={[styles.socialButtonIcon, { color: '#FFFFFF' }]}>G</Text>
+            <Text style={[styles.socialButtonText, { color: '#FFFFFF' }]}>
               {isGoogleLoading ? 'Signing in...' : 'Continue with Google'}
             </Text>
           </TouchableOpacity>
         </View>
 
+
+
         {/* Divider */}
         <View style={styles.divider}>
-          <View style={[styles.dividerLine, { backgroundColor: colors.textSecondary }]} />
-          <Text style={[styles.dividerText, { color: colors.textSecondary }]}>or</Text>
-          <View style={[styles.dividerLine, { backgroundColor: colors.textSecondary }]} />
+          <View style={[styles.dividerLine, { backgroundColor: '#666666' }]} />
+          <Text style={[styles.dividerText, { color: '#666666' }]}>or</Text>
+          <View style={[styles.dividerLine, { backgroundColor: '#666666' }]} />
         </View>
 
         {/* Email and Password Fields */}
         <View style={styles.formContainer}>
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Email</Text>
+            <Text style={[styles.inputLabel, { color: '#000000' }]}>Email</Text>
             <TextInput
               style={[styles.textInput, { 
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                color: colors.text
+                color: '#000000'
               }]}
               placeholder="Enter your email"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#666666"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -273,15 +268,15 @@ export default function SignInScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Password</Text>
+            <Text style={[styles.inputLabel, { color: '#000000' }]}>Password</Text>
             <TextInput
               style={[styles.textInput, { 
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                color: colors.text
+                color: '#000000'
               }]}
               placeholder="Enter your password"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#666666"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -294,14 +289,14 @@ export default function SignInScreen() {
           <TouchableOpacity
             style={[
               styles.loginButton, 
-              { backgroundColor: colors.buttonBackground },
+              { backgroundColor: colors.primary },
               isLoading && styles.socialButtonDisabled
             ]}
             onPress={handleEmailSignIn}
             disabled={isLoading || isGoogleLoading}
             activeOpacity={0.8}
           >
-            <Text style={[styles.loginButtonText, { color: colors.buttonText }]}>
+            <Text style={[styles.loginButtonText, { color: '#FFFFFF' }]}>
               {isLoading ? 'Signing in...' : 'Log In'}
             </Text>
           </TouchableOpacity>
@@ -310,13 +305,13 @@ export default function SignInScreen() {
         {/* Links */}
         <View style={styles.links}>
           <TouchableOpacity onPress={handleResetPassword}>
-            <Text style={[styles.linkText, { color: colors.text, textDecorationLine: 'underline' }]}>
+            <Text style={[styles.linkText, { color: '#000000', textDecorationLine: 'underline' }]}>
               Reset password
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={handleSignUp}>
-            <Text style={[styles.linkText, { color: colors.text }]}>
+            <Text style={[styles.linkText, { color: '#000000' }]}>
               Don't have an account?{' '}
               <Text style={{ textDecorationLine: 'underline' }}>Create new account</Text>
             </Text>
@@ -410,6 +405,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     fontSize: 14,
   },
+
   formContainer: {
     marginBottom: 32,
   },

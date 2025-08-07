@@ -1,20 +1,25 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Alert,
-  FlatList,
-  Platform,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    FlatList,
+    Platform,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 import { TopBar } from '@/components/ui/TopBar';
+import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestMode } from '@/contexts/GuestModeContext';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 
 interface TodoTask {
   id: string;
@@ -43,6 +48,17 @@ function getVisibleTasks(tasks: TodoTask[], hideCompleted: boolean) {
 export default function TodoScreen() {
   const { mode, colors } = useThemeColors();
   const { addToStack, handleBack } = usePreviousScreen();
+  const { session } = useAuth();
+  const { 
+    isGuestMode, 
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [newTaskText, setNewTaskText] = useState('');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -153,6 +169,12 @@ export default function TodoScreen() {
 
   const addTask = () => {
     if (!newTaskText.trim()) return;
+
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
+      return;
+    }
 
     const newTask: TodoTask = {
       id: generateUniqueId('user'),
@@ -428,6 +450,15 @@ export default function TodoScreen() {
           </TouchableOpacity>
         </View>
       </View>
+      
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }

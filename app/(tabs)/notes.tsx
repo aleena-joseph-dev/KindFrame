@@ -1,15 +1,21 @@
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestMode } from '@/contexts/GuestModeContext';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import { useGuestData } from '@/hooks/useGuestData';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
+import { supabase } from '@/lib/supabase';
 import { AuthService } from '@/services/authService';
 import { DataService, Note as DatabaseNote } from '@/services/dataService';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -19,7 +25,6 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { useSession, useSessionContext, useSupabaseClient } from '@supabase/auth-helpers-react';
 
 interface Note {
   id: string;
@@ -39,9 +44,19 @@ export default function NotesScreen() {
   
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, navigationStack } = usePreviousScreen();
-  const session = useSession();
-  const supabase = useSupabaseClient();
-  const { isLoading: authLoading } = useSessionContext();
+  const { session, loading: authLoading } = useAuth();
+  const { 
+    isGuestMode, 
+    createNote, 
+    deleteNote,
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
   
   const [notes, setNotes] = useState<Note[]>([]);
   const [showAddNote, setShowAddNote] = useState(false);
@@ -62,7 +77,6 @@ export default function NotesScreen() {
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
-    console.log('Notes screen mounting, adding to stack');
     addToStack('notes');
   }, [addToStack]);
 
@@ -96,11 +110,9 @@ export default function NotesScreen() {
         }));
         setNotes(convertedNotes);
       } else {
-        console.error('Error loading notes:', result.error);
         setNotes([]);
       }
     } catch (error) {
-      console.error('Error loading notes:', error);
       setNotes([]);
     } finally {
       setIsLoading(false);
@@ -111,39 +123,29 @@ export default function NotesScreen() {
     try {
       // This function is now handled by individual CRUD operations
       // We'll update the database directly in handleAddNote, handleUpdateNote, etc.
-      console.log('Notes saved to database');
     } catch (error) {
-      console.error('Error saving notes:', error);
+      // Handle error silently
     }
   };
 
   // Google Keep Integration
   const checkGoogleKeepConnection = async () => {
     try {
-      console.log('Checking Google Keep connection...');
-      
       // Get provider token from localStorage (Notes/Keep-specific)
       const providerToken = localStorage.getItem('google_keep_token');
-      console.log('🔍 Provider token exists:', !!providerToken);
       
       // Check if user has a Supabase session and provider token
       if (session && session.user && providerToken) {
-        console.log('✅ User authenticated with Google Keep access');
-        console.log('🔍 User email:', session.user.email);
         setIsGoogleKeepConnected(true);
         
         // If connected, fetch notes
         fetchGoogleKeepNotes();
       } else if (session && session.user) {
-        console.log('✅ User authenticated but no Google Keep access yet');
-        console.log('🔍 User email:', session.user.email);
         setIsGoogleKeepConnected(false);
       } else {
-        console.log('❌ No Supabase session found');
         setIsGoogleKeepConnected(false);
       }
     } catch (error) {
-      console.error('Error checking Google Keep connection:', error);
       setIsGoogleKeepConnected(false);
     }
   };
@@ -151,36 +153,29 @@ export default function NotesScreen() {
   const fetchGoogleKeepNotes = async () => {
     try {
       setIsLoading(true);
-      console.log('🔍 Fetching Google Keep notes using AuthService...');
       
       // Use AuthService to fetch Google Keep notes
       const notes = await AuthService.fetchGoogleKeepNotes();
       
       setGoogleKeepNotes(notes);
-      console.log('🔍 Fetched Google Keep notes count:', notes.length);
       
       // Sync notes to database using DataService
       try {
         const syncResult = await DataService.syncGoogleKeepNotes(notes);
         if (syncResult.success) {
           const syncedNotes = syncResult.data as DatabaseNote[];
-          console.log('✅ Google Keep notes synced to database:', syncedNotes?.length || 0);
           // Reload notes from database to show synced notes
           await loadNotes();
-        } else {
-          console.error('❌ Failed to sync Google Keep notes:', syncResult.error);
         }
       } catch (syncError) {
-        console.error('❌ Error syncing Google Keep notes:', syncError);
+        // Handle sync error silently
       }
     } catch (error) {
-      console.error('Error fetching Google Keep notes:', error);
       setGoogleKeepNotes([]);
       
       // If the API call fails, it might mean the token is invalid
       // Check if the error is related to authentication
       if (error.message && error.message.includes('No Google access token found')) {
-        console.log('🔍 Token not found, setting connection to false');
         setIsGoogleKeepConnected(false);
         // Clear the invalid token
         localStorage.removeItem('google_keep_token');
@@ -192,9 +187,8 @@ export default function NotesScreen() {
 
   const handleGoogleKeepSync = () => {
     if (isGoogleKeepConnected) {
-      console.log('🔍 Google Keep already connected');
+      // Google Keep already connected
     } else {
-      console.log('🔍 Opening Google Keep sync modal');
       setShowGoogleKeepSync(true);
     }
   };
@@ -209,7 +203,6 @@ export default function NotesScreen() {
 
   const handleRefreshKeep = async () => {
     try {
-      console.log('🔍 Refreshing Google Keep notes...');
       setIsLoading(true);
       
       // Fetch fresh Google Keep notes using the existing function
@@ -217,10 +210,8 @@ export default function NotesScreen() {
       
       // Also reload local notes from database
       await loadNotes();
-      
-      console.log('🔍 Google Keep notes refreshed successfully');
     } catch (error) {
-      console.error('Error refreshing Google Keep:', error);
+      // Handle error silently
     } finally {
       setIsLoading(false);
     }
@@ -230,12 +221,6 @@ export default function NotesScreen() {
     try {
       setShowGoogleKeepModal(false);
       setIsLoading(true);
-      
-      console.log('🔍 Connect button clicked!');
-      console.log('🔍 Supabase client:', supabase);
-      console.log('🔍 Current session:', session);
-      console.log('🔍 About to call supabase.auth.signInWithOAuth...');
-      console.log('🔍 This will authenticate user and request Google Keep access');
       
       const { data, error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -249,19 +234,11 @@ export default function NotesScreen() {
         }
       });
       
-      console.log('🔍 OAuth response data:', data);
-      console.log('🔍 OAuth response error:', error);
-      
       if (error) {
-        console.error('❌ OAuth error:', error);
         setIsLoading(false);
-      } else {
-        console.log('✅ Auth initiated successfully!');
-        console.log('🔍 User will be redirected to Google OAuth...');
-        // The OAuth flow will redirect to auth-callback
       }
+      // The OAuth flow will redirect to auth-callback
     } catch (error) {
-      console.error('❌ Error connecting to Google Keep:', error);
       setIsLoading(false);
     }
   };
@@ -277,9 +254,8 @@ export default function NotesScreen() {
       localStorage.removeItem('google_provider_token');
       setIsGoogleKeepConnected(false);
       setGoogleKeepNotes([]);
-      console.log('✅ Signed out successfully');
     } catch (error) {
-      console.error('Error signing out:', error);
+      // Handle error silently
     }
   };
 
@@ -288,11 +264,10 @@ export default function NotesScreen() {
   // Load synced Google Keep notes
   const loadSyncedKeepNotes = async () => {
     try {
-      console.log('Loading synced Google Keep notes...');
       // Use our server API directly
       await fetchGoogleKeepNotes();
     } catch (error) {
-      console.error('Error loading synced Keep notes:', error);
+      // Handle error silently
     }
   };
 
@@ -303,14 +278,21 @@ export default function NotesScreen() {
 
     try {
       setIsLoading(true);
-      const result = await DataService.createNote({
+      
+      // Check if user is in guest mode and show popup
+      if (isGuestMode && !session) {
+        promptSignIn();
+        return;
+      }
+
+      const result = await createNote({
         title: newNoteTitle.trim(),
         content: newNoteContent.trim(),
         category: newNoteCategory,
         tags: []
       });
 
-      if (result.success && result.data) {
+      if (result && result.success && result.data) {
         // Convert database note to local note format
         const dbNote = result.data as DatabaseNote;
         const newNote: Note = {
@@ -330,11 +312,9 @@ export default function NotesScreen() {
         setNewNoteContent('');
         setNewNoteCategory('personal');
         setShowAddNote(false);
-      } else {
-        console.error('Failed to create note:', result.error);
       }
     } catch (error) {
-      console.error('Error creating note:', error);
+      // Handle error silently
     } finally {
       setIsLoading(false);
     }
@@ -343,6 +323,13 @@ export default function NotesScreen() {
   const handleUpdateNote = async (noteId: string, updatedTitle: string, updatedContent: string) => {
     try {
       setIsLoading(true);
+      
+      // Check if user is in guest mode and show popup
+      if (isGuestMode && !session) {
+        promptSignIn();
+        return;
+      }
+
       const result = await DataService.updateNote(noteId, {
         title: updatedTitle,
         content: updatedContent
@@ -364,36 +351,43 @@ export default function NotesScreen() {
         setNotes(updatedNotes);
         setSelectedNote(null);
       } else {
-        console.error('Failed to update note:', result.error);
+        // Handle error silently
       }
     } catch (error) {
-      console.error('Error updating note:', error);
+      // Handle error silently
     } finally {
       setIsLoading(false);
     }
   };
 
   const handleDeleteNote = (noteId: string) => {
-    const deleteNote = async () => {
+    const deleteNoteAsync = async () => {
       try {
         setIsLoading(true);
-        const result = await DataService.deleteNote(noteId);
+        
+        // Check if user is in guest mode and show popup
+        if (isGuestMode && !session) {
+          promptSignIn();
+          return;
+        }
+
+        const result = await deleteNote(noteId);
         
         if (result.success) {
           const updatedNotes = notes.filter(note => note.id !== noteId);
           setNotes(updatedNotes);
           setSelectedNote(null);
         } else {
-          console.error('Failed to delete note:', result.error);
+          // Handle error silently
         }
       } catch (error) {
-        console.error('Error deleting note:', error);
+        // Handle error silently
       } finally {
         setIsLoading(false);
       }
     };
     
-    deleteNote();
+    deleteNoteAsync();
   };
 
   const getCategoryColor = (category: string) => {
@@ -463,8 +457,6 @@ export default function NotesScreen() {
       <TopBar 
         title="Notes" 
         onBack={() => {
-          console.log('Notes back button pressed');
-          console.log('Current navigation stack:', navigationStack);
           handleBack('menu');
         }} 
         showSettings={true}
@@ -475,22 +467,7 @@ export default function NotesScreen() {
         }}
       />
       
-      {/* Refresh Button */}
-      <View style={{ flexDirection: 'row', justifyContent: 'center', margin: 10 }}>
-        <TouchableOpacity
-          style={{
-            backgroundColor: 'orange',
-            padding: 15,
-            borderRadius: 8,
-            borderWidth: 2,
-            borderColor: 'red',
-            minWidth: 120
-          }}
-          onPress={handleRefreshKeep}
-        >
-          <Text style={{ color: 'white', textAlign: 'center', fontWeight: 'bold', fontSize: 16 }}>REFRESH</Text>
-        </TouchableOpacity>
-      </View>
+
       
       {/* Sync Success Banner */}
       {showSyncSuccess && (
@@ -883,6 +860,16 @@ export default function NotesScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Save Work Modal */}
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }

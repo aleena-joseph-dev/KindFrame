@@ -13,9 +13,14 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 import { TopBar } from '@/components/ui/TopBar';
+import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestMode } from '@/contexts/GuestModeContext';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 
 interface KanbanTask {
   id: string;
@@ -37,6 +42,17 @@ export default function KanbanScreen() {
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { session } = useAuth();
+  const { 
+    isGuestMode, 
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
   
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
@@ -81,6 +97,12 @@ export default function KanbanScreen() {
   const handleAddTask = () => {
     if (!newTaskTitle.trim()) {
       Alert.alert('Empty Task', 'Please enter a task title.');
+      return;
+    }
+
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
       return;
     }
 
@@ -306,6 +328,15 @@ export default function KanbanScreen() {
           </View>
         </View>
       )}
+      
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }

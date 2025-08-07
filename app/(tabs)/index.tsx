@@ -9,6 +9,7 @@ import { CalendarIcon } from '@/components/ui/CalendarIcon';
 import { CheckIcon } from '@/components/ui/CheckIcon';
 import { ChevronIcon } from '@/components/ui/ChevronDownIcon';
 import { ClockIcon } from '@/components/ui/ClockIcon';
+import { GuestModeIndicator } from '@/components/ui/GuestModeIndicator';
 import { HeadphonesIcon } from '@/components/ui/HeadphonesIcon';
 import { KanbanIcon } from '@/components/ui/KanbanIcon';
 import MenuIcon from '@/components/ui/MenuIcon';
@@ -21,6 +22,8 @@ import { SmileIcon } from '@/components/ui/SmileIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import { ThemeDropdown } from '@/components/ui/ThemeDropdown';
 import { SensoryColors } from '@/constants/Colors';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestMode } from '@/contexts/GuestModeContext';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
@@ -38,6 +41,8 @@ export default function HomeScreen() {
   const router = useRouter();
   const { addToStack, removeFromStack, getPreviousScreen, resetStack } = usePreviousScreen();
   const { mode, setMode, isLoading: modeLoading, refreshMode, loadModeForAuthenticatedUser } = useSensoryMode();
+  const { isGuestMode } = useGuestMode();
+  const { session } = useAuth();
 
   // Loading state for splash
   const [loading, setLoading] = useState(true);
@@ -172,6 +177,16 @@ export default function HomeScreen() {
          }
       } else {
         console.log('❌ NO USER: No authenticated user found');
+        
+        // Check if user is in guest mode
+        if (isGuestMode) {
+          console.log('✅ GUEST MODE: User is in guest mode, continuing without authentication');
+          return;
+        } else {
+          console.log('❌ NO AUTH & NO GUEST: Redirecting to signin');
+          router.replace('/(auth)/signin');
+          return;
+        }
       }
     } catch (error) {
       console.error('❌ LOAD USER DATA EXCEPTION: Error loading user data and detecting visit:', {
@@ -182,9 +197,17 @@ export default function HomeScreen() {
       
       // Check if it's an auth session missing error
       if (error?.message?.includes('Auth session missing')) {
-        console.log('No auth session, redirecting to signin');
-        router.replace('/(auth)/signin');
-        return;
+        console.log('⚠️ NO AUTH SESSION: Checking if user is in guest mode');
+        
+        // Check if user is in guest mode before redirecting
+        if (isGuestMode) {
+          console.log('✅ GUEST MODE: User is in guest mode, continuing without authentication');
+          return;
+        } else {
+          console.log('❌ NO AUTH & NO GUEST: Redirecting to signin');
+          router.replace('/(auth)/signin');
+          return;
+        }
       }
     }
   };
@@ -450,9 +473,17 @@ export default function HomeScreen() {
       
       // Check if it's an auth session missing error
       if (error?.message?.includes('Auth session missing')) {
-        console.log('No auth session during theme change, redirecting to signin');
-        router.replace('/(auth)/signin');
-        return;
+        console.log('⚠️ NO AUTH SESSION: Checking if user is in guest mode during theme change');
+        
+        // Check if user is in guest mode before redirecting
+        if (isGuestMode) {
+          console.log('✅ GUEST MODE: User is in guest mode, continuing without authentication');
+          return;
+        } else {
+          console.log('❌ NO AUTH & NO GUEST: Redirecting to signin');
+          router.replace('/(auth)/signin');
+          return;
+        }
       }
     }
   };
@@ -585,6 +616,11 @@ export default function HomeScreen() {
           />
         </View>
       </View>
+
+      {/* Guest Mode Indicator */}
+      {isGuestMode && !session && (
+        <GuestModeIndicator />
+      )}
 
       {/* Welcome Message */}
       {showWelcomeMessage && welcomeMessage && (
@@ -970,7 +1006,7 @@ const styles = StyleSheet.create({
   welcomeContainer: {
     paddingHorizontal: 20,
     paddingVertical: 10,
-    backgroundColor: '#f0f9eb', // Light green background
+    backgroundColor: '#f0f9eb', // welcome text bg
     borderRadius: 12,
     marginHorizontal: 20,
     marginBottom: 20,

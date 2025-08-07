@@ -1,6 +1,6 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SensoryColors } from '@/constants/Colors';
@@ -18,7 +18,7 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const colors = SensoryColors['calm'];
+  const colors = SensoryColors['normal'];
 
   useEffect(() => {
     // Check if user is already signed in
@@ -44,23 +44,12 @@ export default function SignUpScreen() {
       
       if (result.success) {
         // OAuth flow will be handled by deep linking
-        Alert.alert(
-          'Google Sign Up', 
-          'Redirecting to Google... Please complete the sign-up process.',
-          [{ text: 'OK' }]
-        );
+        console.log('Google Sign Up: Redirecting to Google... Please complete the sign-up process.');
       } else {
-        Alert.alert(
-          'Sign-up Error', 
-          result.error?.message || 'Failed to sign up with Google. Please try again.'
-        );
+        console.error('Sign-up Error:', result.error?.message || 'Failed to sign up with Google. Please try again.');
       }
     } catch (error) {
       console.error('Google sign-up error:', error);
-      Alert.alert(
-        'Sign-up Error', 
-        'Failed to sign up with Google. Please try again.'
-      );
     } finally {
       setIsGoogleLoading(false);
     }
@@ -172,41 +161,38 @@ export default function SignUpScreen() {
 
     // Check if all fields are filled
     if (!trimmedEmail || !trimmedPassword || !trimmedConfirmPassword) {
-      Alert.alert('Error', 'Please fill in all fields.');
+      console.error('Error: Please fill in all fields.');
       return;
     }
 
     // Validate email format
     if (!isValidEmail(trimmedEmail)) {
-      Alert.alert('Invalid Email', 'Please enter a valid email address.');
+      console.error('Invalid Email: Please enter a valid email address.');
       return;
     }
 
     // Check for valid email domain
     if (!isValidEmailDomain(trimmedEmail)) {
-      Alert.alert(
-        'Invalid Email Domain', 
-        'Please use a valid email domain (e.g., gmail.com, outlook.com, yahoo.com).\n\nTest domains like example.com are not allowed.'
-      );
+      console.error('Invalid Email Domain: Please use a valid email domain (e.g., gmail.com, outlook.com, yahoo.com). Test domains like example.com are not allowed.');
       return;
     }
 
     // Validate password
     const passwordValidation = isValidPassword(trimmedPassword);
     if (!passwordValidation.isValid) {
-      Alert.alert('Invalid Password', passwordValidation.message);
+      console.error('Invalid Password:', passwordValidation.message);
       return;
     }
 
     // Check password confirmation
     if (trimmedPassword !== trimmedConfirmPassword) {
-      Alert.alert('Password Mismatch', 'Passwords do not match. Please try again.');
+      console.error('Password Mismatch: Passwords do not match. Please try again.');
       return;
     }
 
     // Additional password length check for Supabase
     if (trimmedPassword.length < 6) {
-      Alert.alert('Password Too Short', 'Password must be at least 6 characters long.');
+      console.error('Password Too Short: Password must be at least 6 characters long.');
       return;
     }
 
@@ -221,11 +207,9 @@ export default function SignUpScreen() {
         router.replace('/(tabs)');
       } else {
         console.error('Signup failed:', result.error);
-        Alert.alert('Sign-up Error', result.error?.message || 'Failed to create account. Please try again.');
       }
     } catch (error) {
       console.error('Email sign-up error:', error);
-      Alert.alert('Sign-up Error', 'An unexpected error occurred. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -237,7 +221,12 @@ export default function SignUpScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <View style={styles.content}>
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.content}>
         {/* Logo */}
         <View style={{ alignItems: 'center', marginBottom: 4 }}>
           <Image
@@ -248,16 +237,49 @@ export default function SignUpScreen() {
         </View>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.appName, { color: colors.text }]}>KindFrame</Text>
-          <Text style={[styles.tagline, { color: colors.textSecondary }]}>Structure that respects your brain and your bandwidth.</Text>
+          <Text style={[styles.appName, { color: '#000000' }]}>KindFrame</Text>
+          <Text style={[styles.tagline, { color: '#000000' }]}>Structure that respects your brain and your bandwidth.</Text>
+        </View>
+
+        {/* App Introduction */}
+        <View style={styles.introContainer}>
+          <View style={styles.introBlock}>
+            <View style={styles.introHeader}>
+              <Text style={[styles.introBlockIcon, { color: colors.primary }]}>🎯</Text>
+              <Text style={[styles.introBlockTitle, { color: '#000000' }]}>Productivity Meets Wellness</Text>
+            </View>
+            <Text style={[styles.introBlockText, { color: '#000000' }]}>
+              Quick Jot for instant thoughts, Notes for organization, Kanban for projects, Pomodoro for focus, Calendar for planning, Goals for direction, and Todos for tasks—all designed to work with your natural rhythms.
+            </Text>
+          </View>
+
+          <View style={styles.introBlock}>
+            <View style={styles.introHeader}>
+              <Text style={[styles.introBlockIcon, { color: colors.primary }]}>🧘‍♀️</Text>
+              <Text style={[styles.introBlockTitle, { color: '#000000' }]}>Mindful Living Tools</Text>
+            </View>
+            <Text style={[styles.introBlockText, { color: '#000000' }]}>
+              Meditation, breathing, mood tracking, music sessions, and zone-out moments—supporting your mental wellness.
+            </Text>
+          </View>
+
+          <View style={styles.introBlock}>
+            <View style={styles.introHeader}>
+              <Text style={[styles.introBlockIcon, { color: colors.primary }]}>⚡</Text>
+              <Text style={[styles.introBlockTitle, { color: '#000000' }]}>Adaptive Intelligence</Text>
+            </View>
+            <Text style={[styles.introBlockText, { color: '#000000' }]}>
+              Smart interface that adapts to your energy levels and cognitive load—providing exactly what you need, when you need it.
+            </Text>
+          </View>
         </View>
 
         {/* Greeting */}
         <View style={styles.greeting}>
-          <Text style={[styles.greetingText, { color: colors.text }]}>
+          <Text style={[styles.greetingText, { color: '#000000' }]}>
             Ready to get started?
           </Text>
-          <Text style={[styles.signupTitle, { color: colors.text }]}>
+          <Text style={[styles.signupTitle, { color: '#000000' }]}>
             Create your KindFrame account
           </Text>
         </View>
@@ -301,15 +323,15 @@ export default function SignUpScreen() {
           <TouchableOpacity
             style={[
               styles.socialButton, 
-              { backgroundColor: colors.buttonBackground },
+              { backgroundColor: colors.primary },
               isGoogleLoading && styles.socialButtonDisabled
             ]}
             onPress={handleGoogleSignUp}
             disabled={isGoogleLoading || isLoading}
             activeOpacity={0.8}
           >
-            <Text style={[styles.socialButtonIcon, { color: colors.buttonText }]}>G</Text>
-            <Text style={[styles.socialButtonText, { color: colors.buttonText }]}>
+            <Text style={[styles.socialButtonIcon, { color: '#FFFFFF' }]}>G</Text>
+            <Text style={[styles.socialButtonText, { color: '#FFFFFF' }]}>
               {isGoogleLoading ? 'Signing up...' : 'Continue with Google'}
             </Text>
           </TouchableOpacity>
@@ -325,15 +347,15 @@ export default function SignUpScreen() {
         {/* Email and Password Fields */}
         <View style={styles.formContainer}>
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Email</Text>
+            <Text style={[styles.inputLabel, { color: '#000000' }]}>Email</Text>
             <TextInput
               style={[styles.textInput, { 
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                color: colors.text
+                color: '#000000'
               }]}
               placeholder="Enter your email (e.g., user@gmail.com)"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#666666"
               value={email}
               onChangeText={setEmail}
               keyboardType="email-address"
@@ -343,15 +365,15 @@ export default function SignUpScreen() {
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Password</Text>
+            <Text style={[styles.inputLabel, { color: '#000000' }]}>Password</Text>
             <TextInput
               style={[styles.textInput, { 
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                color: colors.text
+                color: '#000000'
               }]}
               placeholder="Create a password"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#666666"
               value={password}
               onChangeText={setPassword}
               secureTextEntry
@@ -378,22 +400,22 @@ export default function SignUpScreen() {
             )}
             
             {password.length > 0 && (
-              <Text style={[styles.passwordRequirements, { color: colors.textSecondary }]}>
+              <Text style={[styles.passwordRequirements, { color: '#666666' }]}>
                 Password must be at least 8 characters with uppercase, lowercase, and number
               </Text>
             )}
           </View>
 
           <View style={styles.inputGroup}>
-            <Text style={[styles.inputLabel, { color: colors.text }]}>Confirm Password</Text>
+            <Text style={[styles.inputLabel, { color: '#000000' }]}>Confirm Password</Text>
             <TextInput
               style={[styles.textInput, { 
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                color: colors.text
+                color: '#000000'
               }]}
               placeholder="Confirm your password"
-              placeholderTextColor={colors.textSecondary}
+              placeholderTextColor="#666666"
               value={confirmPassword}
               onChangeText={setConfirmPassword}
               secureTextEntry
@@ -406,14 +428,14 @@ export default function SignUpScreen() {
           <TouchableOpacity
             style={[
               styles.signupButton, 
-              { backgroundColor: colors.buttonBackground },
+              { backgroundColor: colors.primary },
               isLoading && styles.socialButtonDisabled
             ]}
             onPress={handleEmailSignUp}
             disabled={isLoading || isGoogleLoading}
             activeOpacity={0.8}
           >
-            <Text style={[styles.signupButtonText, { color: colors.buttonText }]}>
+            <Text style={[styles.signupButtonText, { color: '#FFFFFF' }]}>
               {isLoading ? 'Creating account...' : 'Create Account'}
             </Text>
           </TouchableOpacity>
@@ -422,7 +444,7 @@ export default function SignUpScreen() {
         {/* Links */}
         <View style={styles.links}>
           <TouchableOpacity onPress={handleSignIn}>
-            <Text style={[styles.linkText, { color: colors.text }]}>
+            <Text style={[styles.linkText, { color: '#000000' }]}>
               Already have an account?{' '}
               <Text style={{ textDecorationLine: 'underline' }}>Sign in</Text>
             </Text>
@@ -436,6 +458,7 @@ export default function SignUpScreen() {
           </Text>
         </View>
       </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -443,6 +466,13 @@ export default function SignUpScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
   content: {
     flex: 1,
@@ -462,6 +492,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     textAlign: 'center',
     lineHeight: 24,
+  },
+  introContainer: {
+    marginHorizontal: 16,
+    marginBottom: 20,
+    gap: 16,
+  },
+  introBlock: {
+    alignItems: 'flex-start',
+    paddingVertical: 8,
+  },
+  introHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  introBlockIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  introBlockTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    textAlign: 'left',
+    lineHeight: 18,
+  },
+  introBlockText: {
+    fontSize: 12,
+    lineHeight: 16,
+    textAlign: 'left',
+    opacity: 0.7,
   },
   greeting: {
     alignItems: 'center',

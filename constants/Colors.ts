@@ -15,7 +15,7 @@ export const SensoryColors = {
     surface: '#FFFFFF', // White for surfaces
     cardBackground: '#FFFFFF',
     text: '#5E5E5E', // Charcoal Grey
-    textSecondary: '#B2C8D7', // Quiet Blue (for secondary text)
+    textSecondary: '#4a5565', // Quiet Blue (for secondary text)
     subtitle: '#B2C8D7',
     border: '#E5E7EB',
     button: '#D8D3E7', // Pale Lavender
@@ -36,7 +36,7 @@ export const SensoryColors = {
     surface: '#FFFFFF',
     cardBackground: '#FFFFFF',
     text: '#2A3D45', // Deep Navy
-    textSecondary: '#0ABAB5', // Bright Teal
+    textSecondary: '#4a5565', // Bright Teal
     subtitle: '#FFD465', // Sunny Yellow
     border: '#E5E7EB',
     button: '#0ABAB5',
@@ -57,7 +57,7 @@ export const SensoryColors = {
     surface: '#FFFFFF',
     cardBackground: '#FFFFFF',
     text: '#474F59', // Slate
-    textSecondary: '#A0C49D', // Muted Green
+    textSecondary: '#4a5565', // Muted Green
     subtitle: '#FFC3A0', // Warm Peach
     border: '#E5E7EB',
     button: '#A0C49D',
@@ -78,7 +78,7 @@ export const SensoryColors = {
     surface: '#FFFFFF',
     cardBackground: '#FFFFFF',
     text: '#6B5B4E', // Muted Brown
-    textSecondary: '#D3A8A8', // Dusky Rose
+    textSecondary: '#4a5565', // Dusky Rose
     subtitle: '#B2D8B9', // Calming Mint
     border: '#E5E7EB',
     button: '#B2D8B9',

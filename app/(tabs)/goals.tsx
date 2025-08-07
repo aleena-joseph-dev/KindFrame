@@ -2,21 +2,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import { TopBar } from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 
 interface Goal {
   id: string;
@@ -45,6 +48,17 @@ export default function GoalsScreen() {
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
   const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { session } = useAuth();
+  const { 
+    isGuestMode, 
+    promptSignIn, 
+    showSaveWorkModal, 
+    closeSaveWorkModal,
+    handleGoogleSignIn,
+    handleEmailSignIn,
+    handleSkip,
+    handleSignInLink
+  } = useGuestData();
   
   const [goals, setGoals] = useState<Goal[]>([]);
   const [showAddGoal, setShowAddGoal] = useState(false);
@@ -92,6 +106,12 @@ export default function GoalsScreen() {
   const handleAddGoal = () => {
     if (!newGoalTitle.trim()) {
       Alert.alert('Empty Goal', 'Please enter a goal title.');
+      return;
+    }
+
+    // Check if user is in guest mode and show popup
+    if (isGuestMode && !session) {
+      promptSignIn();
       return;
     }
 
@@ -691,6 +711,15 @@ export default function GoalsScreen() {
           </View>
         </View>
       )}
+      
+      <SaveWorkModal
+        visible={showSaveWorkModal}
+        onClose={closeSaveWorkModal}
+        onGoogleSignIn={handleGoogleSignIn}
+        onEmailSignIn={handleEmailSignIn}
+        onSkip={handleSkip}
+        onSignInLink={handleSignInLink}
+      />
     </SafeAreaView>
   );
 }
