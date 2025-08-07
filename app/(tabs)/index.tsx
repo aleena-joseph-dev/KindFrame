@@ -25,8 +25,12 @@ import { SensoryColors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestMode } from '@/contexts/GuestModeContext';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import { useTutorial } from '@/contexts/TutorialContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import { TutorialButton } from '@/components/ui/TutorialButton';
+import { TutorialOverlay } from '@/components/ui/TutorialOverlay';
+import { AppreciationAnimation } from '@/components/ui/AppreciationAnimation';
 import { detectVisitType, getWelcomeMessage, shouldShowWelcomeMessage, updateVisitData } from '@/utils/visitTypeDetector';
 
 interface FeatureItem {
