@@ -4,8 +4,10 @@ import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SensoryColors } from '@/constants/Colors';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SignUpScreen() {
   const colorScheme = useColorScheme();
@@ -18,7 +20,8 @@ export default function SignUpScreen() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [fullName, setFullName] = useState('');
-  const colors = SensoryColors['normal'];
+  const { mode } = useSensoryMode();
+  const colors = SensoryColors[mode];
 
   useEffect(() => {
     // Check if user is already signed in
@@ -45,6 +48,8 @@ export default function SignUpScreen() {
       if (result.success) {
         // OAuth flow will be handled by deep linking
         console.log('Google Sign Up: Redirecting to Google... Please complete the sign-up process.');
+        // Note: The actual redirect after OAuth will be handled in the auth callback
+        // which should also check for onboarding status
       } else {
         console.error('Sign-up Error:', result.error?.message || 'Failed to sign up with Google. Please try again.');
       }
@@ -154,6 +159,40 @@ export default function SignUpScreen() {
 
   const passwordStrength = getPasswordStrength(password);
 
+  const checkOnboardingStatus = async () => {
+    try {
+      const currentUser = await AuthService.getCurrentUser();
+      if (!currentUser) return false;
+
+      // Check if user has completed onboarding in their profile
+      const hasCompletedInProfile = currentUser.profile?.settings?.hasCompletedOnboarding;
+      let hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
+      
+      console.log('Signup onboarding check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        profileExists: !!currentUser.profile,
+        settingsExist: !!currentUser.profile?.settings
+      });
+      
+      // ADDITIONAL FIX: Clear AsyncStorage flag if it exists but profile doesn't have explicit flag
+      if (hasCompletedInStorage === 'true' && !hasCompletedInProfile) {
+        console.log('🔧 ADDITIONAL FIX: Clearing AsyncStorage flag because profile has no explicit completion flag');
+        await AsyncStorage.removeItem('hasCompletedOnboarding');
+        hasCompletedInStorage = null;
+      }
+      
+      // Only consider it completed if hasCompletedOnboarding is explicitly true
+      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      
+      console.log('Signup onboarding completion:', isOnboardingCompleted);
+      return isOnboardingCompleted;
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      return false;
+    }
+  };
+
   const handleEmailSignUp = async () => {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
@@ -202,9 +241,14 @@ export default function SignUpScreen() {
       const result = await AuthService.signUp(trimmedEmail, trimmedPassword, fullName);
       
       if (result.success) {
-        console.log('Signup successful, redirecting...');
-        // Since email confirmation is disabled, redirect immediately
-        router.replace('/(tabs)');
+        console.log('Signup successful, checking onboarding status...');
+        // Check if user needs onboarding (new users should always need onboarding)
+        const hasCompletedOnboarding = await checkOnboardingStatus();
+        if (hasCompletedOnboarding) {
+          router.replace('/(tabs)');
+        } else {
+          router.replace('/onboarding');
+        }
       } else {
         console.error('Signup failed:', result.error);
       }

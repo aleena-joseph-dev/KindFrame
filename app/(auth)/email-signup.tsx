@@ -2,19 +2,20 @@ import { Button } from '@/components/ui/Button';
 import { Logo } from '@/components/ui/Logo';
 import { Text } from '@/components/ui/Text';
 import { SensoryColors } from '@/constants/Colors';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
-  Dimensions,
-  KeyboardAvoidingView,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Dimensions,
+    KeyboardAvoidingView,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
@@ -28,7 +29,8 @@ export default function EmailSignUpScreen() {
     password: '',
     confirmPassword: '',
   });
-  const sensoryTheme: 'calm' | 'highEnergy' | 'normal' | 'relax' = 'calm';
+  const { mode } = useSensoryMode();
+  const sensoryTheme = mode;
 
   const colors = SensoryColors[sensoryTheme];
 

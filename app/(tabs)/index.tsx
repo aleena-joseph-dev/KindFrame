@@ -141,10 +141,9 @@ export default function HomeScreen() {
         const shouldShow = await shouldShowWelcomeMessage(currentUser.id);
         setShowWelcomeMessage(shouldShow);
         
-        // Load mode for authenticated user (but skip if user just completed onboarding)
-        console.log('🔄 LOADING MODE FOR AUTHENTICATED USER');
-        await loadModeForAuthenticatedUser();
-        console.log('✅ MODE LOADED: Mode loaded from SensoryModeContext:', mode);
+        // Mode is now handled automatically by SensoryModeContext
+        // It will load from database for authenticated users or local storage for guest users
+        console.log('✅ MODE MANAGEMENT: Handled automatically by SensoryModeContext');
         
         // Update visit data in database
         console.log('🔄 UPDATING VISIT DATA: Attempting to update visit data for user:', currentUser.id);
@@ -407,85 +406,12 @@ export default function HomeScreen() {
   };
 
   const handleThemeChange = async (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => {
-    console.log('=== DROPDOWN THEME CHANGE ===');
-    console.log('🔍 USER CHANGED THEME TO:', theme);
-    console.log('🔍 CURRENT MODE STATE:', mode);
+    console.log('🎨 THEME CHANGE REQUESTED:', theme);
     
-    // Update local state first
-    console.log('🔍 UPDATING LOCAL MODE STATE');
-    setMode(theme);
+    // Update the mode in the context (this will automatically save to database/local storage)
+    await setMode(theme);
     
-    // Fix Mode Selection and Persistence: Update the row in user_profiles for that user_id
-    try {
-      const currentUser = await AuthService.getCurrentUser();
-      console.log('🔍 CURRENT USER FOR THEME UPDATE:', {
-        id: currentUser?.id,
-        hasProfile: !!currentUser?.profile,
-        currentSettings: currentUser?.profile?.settings,
-        currentMode: currentUser?.profile?.settings?.mode
-      });
-      
-      if (currentUser) {
-        console.log('🔍 UPDATING PROFILE FOR USER:', currentUser.id);
-        
-        // Get current settings to preserve other data
-        const currentSettings = currentUser.profile?.settings || {};
-        const updatedSettings = {
-          ...currentSettings,
-          mode: theme, // Save the selected mode
-        };
-        
-        console.log('🔍 SETTINGS UPDATE:', {
-          previousSettings: currentSettings,
-          updatedSettings: updatedSettings,
-          modeChange: `${currentSettings.mode} → ${theme}`
-        });
-        
-        // Always use the authenticated user's ID for profile operations
-        const result = await AuthService.updateUserProfile(currentUser.id, {
-          settings: updatedSettings
-        });
-        
-        if (result.success) {
-          console.log('✅ SUCCESS: Mode saved to database:', theme);
-          console.log('✅ DATABASE UPDATE COMPLETE');
-          
-          // Refresh the mode from the database to ensure consistency
-          await refreshMode();
-          console.log('✅ MODE REFRESHED: Mode refreshed from database after theme change');
-        } else {
-          console.error('❌ ERROR: Failed to save mode to database:', result.error);
-          
-          // Handle specific database errors
-          if (result.error?.code === 'DUPLICATE_PROFILE') {
-            console.error('🚨 THEME ERROR: Profile already exists - this should not happen with proper flow');
-          } else if (result.error?.code === 'USER_NOT_FOUND') {
-            console.error('🚨 THEME ERROR: User does not exist in auth.users - check authentication');
-          } else if (result.error?.code === 'MISSING_REQUIRED_FIELD') {
-            console.error('🚨 THEME ERROR: Missing required field - check user data');
-          }
-        }
-      } else {
-        console.error('❌ NO USER: No current user found for theme update');
-      }
-    } catch (error) {
-      console.error('❌ ERROR: Error saving mode to database:', error);
-      
-      // Check if it's an auth session missing error
-      if (error?.message?.includes('Auth session missing')) {
-        console.log('⚠️ NO AUTH SESSION: Checking if user is in guest mode during theme change');
-        
-        // Check if user is in guest mode before redirecting
-        if (isGuestMode) {
-          console.log('✅ GUEST MODE: User is in guest mode, continuing without authentication');
-          return;
-        } else {
-          console.log('❌ NO AUTH & NO GUEST: Redirecting to signin');
-          router.replace('/(auth)/signin');
-          return;
-        }
-      }
-    }
+    console.log('✅ THEME CHANGED SUCCESSFULLY:', theme);
   };
 
   const handleSearch = (query: string) => {

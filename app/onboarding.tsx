@@ -1,13 +1,13 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EnergyPopup } from '@/components/onboarding/EnergyPopup';
 import { NicknamePopup } from '@/components/onboarding/NicknamePopup';
 import { OnboardingPopup } from '@/components/onboarding/OnboardingPopup';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import { SensoryMode, useSensoryMode } from '@/contexts/SensoryModeContext';
 import { AuthService } from '@/services/authService';
 
 interface OnboardingData {
@@ -22,7 +22,7 @@ export default function OnboardingScreen() {
   
   const [onboardingData, setOnboardingData] = useState<OnboardingData>({
     nickname: 'Alex',
-    mode: 'normal',
+    mode: 'normal', // This will be updated when user selects a mode
     energyLevel: 5,
   });
 
@@ -56,21 +56,101 @@ export default function OnboardingScreen() {
       console.log('Onboarding status check:', {
         hasCompletedInProfile,
         hasCompletedInStorage,
-        userSettings: currentUser.profile?.settings
+        userSettings: currentUser.profile?.settings,
+        profileExists: !!currentUser.profile,
+        settingsExist: !!currentUser.profile?.settings
       });
       
-      // For testing: Clear AsyncStorage if profile settings are empty
-      if (!hasCompletedInProfile && hasCompletedInStorage === 'true') {
-        console.log('Clearing AsyncStorage for testing - profile has no onboarding data');
+      // Check if onboarding is completed in either place
+      // Only consider it completed if hasCompletedOnboarding is explicitly true
+      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      
+      console.log('Onboarding completion check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        isOnboardingCompleted
+      });
+      
+      // TEMPORARY: Force show onboarding for testing if user has profile but no explicit completion flag
+      if (currentUser.profile && !hasCompletedInProfile) {
+        console.log('🔧 TEMPORARY: User has profile but no explicit onboarding completion flag, showing onboarding');
+        // Clear any existing AsyncStorage flag to ensure onboarding shows
         await AsyncStorage.removeItem('hasCompletedOnboarding');
-        console.log('AsyncStorage cleared, will show onboarding');
-        // Re-check AsyncStorage after clearing
-        hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
-        console.log('AsyncStorage after clearing:', hasCompletedInStorage);
+        const isOnboardingCompleted = false;
+        
+        console.log('Final onboarding check (forced):', {
+          hasCompletedInProfile,
+          hasCompletedInStorage: null,
+          isOnboardingCompleted
+        });
+        
+        if (!isOnboardingCompleted) {
+          // First-time user, show onboarding
+          console.log('First-time user detected, showing onboarding');
+          
+          // Extract nickname from user's email
+          const userEmail = currentUser.email;
+          const extractedNickname = await AsyncStorage.getItem('extractedNickname');
+          
+          // If no extracted nickname in AsyncStorage, extract from email
+          let defaultNickname = extractedNickname;
+          if (!defaultNickname && userEmail) {
+            // Import the name extractor utility
+            const { extractNameFromEmail } = await import('../utils/nameExtractor');
+            const nameResult = extractNameFromEmail(userEmail);
+            defaultNickname = nameResult.displayName;
+            console.log('Extracted nickname from email:', defaultNickname);
+          }
+          
+          // Fallback to 'Alex' if no nickname found
+          defaultNickname = defaultNickname || 'Alex';
+          
+          console.log('Using nickname for onboarding:', defaultNickname);
+          setOnboardingData(prev => ({ ...prev, nickname: defaultNickname }));
+          setShowNicknamePopup(true);
+          return;
+        }
       }
       
-      // Check if onboarding is completed in either place
-      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      // ADDITIONAL FIX: Clear AsyncStorage flag if it exists but profile doesn't have explicit flag
+      if (hasCompletedInStorage === 'true' && !hasCompletedInProfile) {
+        console.log('🔧 ADDITIONAL FIX: Clearing AsyncStorage flag because profile has no explicit completion flag');
+        await AsyncStorage.removeItem('hasCompletedOnboarding');
+        const isOnboardingCompleted = false;
+        
+        console.log('Final onboarding check (AsyncStorage cleared):', {
+          hasCompletedInProfile,
+          hasCompletedInStorage: null,
+          isOnboardingCompleted
+        });
+        
+        if (!isOnboardingCompleted) {
+          // First-time user, show onboarding
+          console.log('First-time user detected, showing onboarding');
+          
+          // Extract nickname from user's email
+          const userEmail = currentUser.email;
+          const extractedNickname = await AsyncStorage.getItem('extractedNickname');
+          
+          // If no extracted nickname in AsyncStorage, extract from email
+          let defaultNickname = extractedNickname;
+          if (!defaultNickname && userEmail) {
+            // Import the name extractor utility
+            const { extractNameFromEmail } = await import('../utils/nameExtractor');
+            const nameResult = extractNameFromEmail(userEmail);
+            defaultNickname = nameResult.displayName;
+            console.log('Extracted nickname from email:', defaultNickname);
+          }
+          
+          // Fallback to 'Alex' if no nickname found
+          defaultNickname = defaultNickname || 'Alex';
+          
+          console.log('Using nickname for onboarding:', defaultNickname);
+          setOnboardingData(prev => ({ ...prev, nickname: defaultNickname }));
+          setShowNicknamePopup(true);
+          return;
+        }
+      }
       
       console.log('Final onboarding check:', {
         hasCompletedInProfile,
@@ -125,6 +205,15 @@ export default function OnboardingScreen() {
     }
   };
 
+  // --- Manual clear function for testing ---
+  const clearOnboardingFlag = async () => {
+    console.log('🧹 MANUAL CLEAR: Clearing onboarding flag for testing');
+    await AsyncStorage.removeItem('hasCompletedOnboarding');
+    console.log('🧹 MANUAL CLEAR: Onboarding flag cleared, reloading page...');
+    // Force reload to trigger onboarding check again
+    window.location.reload();
+  };
+
   // --- Onboarding popup flow ---
   const handleNicknameNext = (nickname: string) => {
     setOnboardingData(prev => ({ ...prev, nickname }));
@@ -150,16 +239,16 @@ export default function OnboardingScreen() {
     setShowModePopup(true);
   };
 
-  const handleModeSelect = (modeId: string) => {
+  const handleModeSelect = async (modeId: string) => {
     setOnboardingData(prev => {
       const newData = { ...prev, mode: modeId };
       console.log('🔍 UPDATED ONBOARDING DATA:', newData);
       return newData;
     });
     
-    // Immediately apply the mode to change UI
+    // Immediately apply the mode to change UI and save it
     console.log('🔍 APPLYING MODE TO UI:', modeId);
-    setMode(modeId as 'calm' | 'highEnergy' | 'normal' | 'relax');
+    await setMode(modeId as 'calm' | 'highEnergy' | 'normal' | 'relax');
     setShowModePopup(false);
     
     console.log('🔍 CALLING COMPLETE ONBOARDING WITH MODE:', modeId);
@@ -220,6 +309,10 @@ export default function OnboardingScreen() {
             nickname: onboardingData.nickname,
             mode: modeToSave
           });
+          
+          // Ensure the mode is set in the global context before navigating
+          await setMode(modeToSave as SensoryMode);
+          console.log('✅ MODE SET IN GLOBAL CONTEXT:', modeToSave);
         } else {
           console.error('❌ ONBOARDING FAILED: Failed to update user profile:', result.error);
         }
@@ -241,6 +334,16 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* TEMPORARY: Manual clear button for testing */}
+      <TouchableOpacity
+        style={[styles.clearButton, { backgroundColor: '#ff6b6b' }]}
+        onPress={clearOnboardingFlag}
+      >
+        <Text style={[styles.clearButtonText, { color: '#ffffff' }]}>
+          🧹 Clear Onboarding Flag (Testing)
+        </Text>
+      </TouchableOpacity>
+      
       {/* Blank screen - no content */}
       <View style={styles.blankScreen} />
       
@@ -277,5 +380,18 @@ const styles = StyleSheet.create({
   blankScreen: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  clearButton: {
+    position: 'absolute',
+    top: 100,
+    right: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    zIndex: 1000,
+  },
+  clearButtonText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 }); 

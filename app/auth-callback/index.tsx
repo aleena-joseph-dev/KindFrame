@@ -1,5 +1,7 @@
 import { useGuestMode } from '@/contexts/GuestModeContext';
 import { supabase } from '@/lib/supabase';
+import { AuthService } from '@/services/authService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '@supabase/auth-helpers-react';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
@@ -13,6 +15,50 @@ export default function AuthCallback() {
   // Track if we've already processed the callback to avoid double processing
   const [hasProcessed, setHasProcessed] = React.useState(false);
   const [isMigrating, setIsMigrating] = React.useState(false);
+
+  const checkOnboardingStatus = async () => {
+    try {
+      const currentUser = await AuthService.getCurrentUser();
+      if (!currentUser) return false;
+
+      // Check if user has completed onboarding in their profile
+      const hasCompletedInProfile = currentUser.profile?.settings?.hasCompletedOnboarding;
+      let hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
+      
+      console.log('Auth callback onboarding check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        profileExists: !!currentUser.profile,
+        settingsExist: !!currentUser.profile?.settings
+      });
+      
+      // ADDITIONAL FIX: Clear AsyncStorage flag if it exists but profile doesn't have explicit flag
+      if (hasCompletedInStorage === 'true' && !hasCompletedInProfile) {
+        console.log('🔧 ADDITIONAL FIX: Clearing AsyncStorage flag because profile has no explicit completion flag');
+        await AsyncStorage.removeItem('hasCompletedOnboarding');
+        hasCompletedInStorage = null;
+      }
+      
+      // Only consider it completed if hasCompletedOnboarding is explicitly true
+      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      
+      console.log('Auth callback onboarding completion:', isOnboardingCompleted);
+      return isOnboardingCompleted;
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      return false;
+    }
+  };
+
+  const redirectToApp = async () => {
+    // Check if user needs onboarding
+    const hasCompletedOnboarding = await checkOnboardingStatus();
+    if (hasCompletedOnboarding) {
+      router.replace('/(tabs)');
+    } else {
+      router.replace('/onboarding');
+    }
+  };
 
   useEffect(() => {
     const handleAuthCallback = async () => {
@@ -216,11 +262,11 @@ export default function AuthCallback() {
               }
             } else {
               console.log('🔍 Default redirect to home page');
-              router.replace('/(tabs)');
+              await redirectToApp();
             }
           } else {
             console.log('⚠️ No session found after OAuth, redirecting to home page');
-            router.replace('/(tabs)');
+            await redirectToApp();
           }
         } else {
           console.log('🔍 No OAuth callback detected, checking existing session...');
@@ -253,10 +299,10 @@ export default function AuthCallback() {
               }
             }
             
-            router.replace('/(tabs)');
+            await redirectToApp();
           } else {
             console.log('⚠️ No session found, redirecting to home page');
-            router.replace('/(tabs)');
+            await redirectToApp();
           }
         }
       } catch (error) {

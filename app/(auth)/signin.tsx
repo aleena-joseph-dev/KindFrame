@@ -1,12 +1,14 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SensoryColors } from '@/constants/Colors';
 import { useGuestMode } from '@/contexts/GuestModeContext';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '@supabase/auth-helpers-react';
 
 export default function SignInScreen() {
@@ -20,7 +22,8 @@ export default function SignInScreen() {
   // const [isNotionLoading, setIsNotionLoading] = useState(false); // Commented out - keeping functionality for future use
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const colors = SensoryColors['normal'];
+  const { mode } = useSensoryMode();
+  const colors = SensoryColors[mode];
 
   useEffect(() => {
     // Check if user is already signed in
@@ -47,6 +50,8 @@ export default function SignInScreen() {
       if (result.success) {
         // OAuth flow will be handled by deep linking
         console.log('Google Sign In: Redirecting to Google... Please complete the sign-in process.');
+        // Note: The actual redirect after OAuth will be handled in the auth callback
+        // which should also check for onboarding status
       } else {
         console.error('Sign-in Error:', result.error?.message || 'Failed to sign in with Google. Please try again.');
       }
@@ -103,6 +108,40 @@ export default function SignInScreen() {
     return emailRegex.test(email);
   };
 
+  const checkOnboardingStatus = async () => {
+    try {
+      const currentUser = await AuthService.getCurrentUser();
+      if (!currentUser) return false;
+
+      // Check if user has completed onboarding in their profile
+      const hasCompletedInProfile = currentUser.profile?.settings?.hasCompletedOnboarding;
+      let hasCompletedInStorage = await AsyncStorage.getItem('hasCompletedOnboarding');
+      
+      console.log('Signin onboarding check:', {
+        hasCompletedInProfile,
+        hasCompletedInStorage,
+        profileExists: !!currentUser.profile,
+        settingsExist: !!currentUser.profile?.settings
+      });
+      
+      // ADDITIONAL FIX: Clear AsyncStorage flag if it exists but profile doesn't have explicit flag
+      if (hasCompletedInStorage === 'true' && !hasCompletedInProfile) {
+        console.log('🔧 ADDITIONAL FIX: Clearing AsyncStorage flag because profile has no explicit completion flag');
+        await AsyncStorage.removeItem('hasCompletedOnboarding');
+        hasCompletedInStorage = null;
+      }
+      
+      // Only consider it completed if hasCompletedOnboarding is explicitly true
+      const isOnboardingCompleted = hasCompletedInProfile === true || hasCompletedInStorage === 'true';
+      
+      console.log('Signin onboarding completion:', isOnboardingCompleted);
+      return isOnboardingCompleted;
+    } catch (error) {
+      console.error('Error checking onboarding status:', error);
+      return false;
+    }
+  };
+
   const handleEmailSignIn = async () => {
     const trimmedEmail = email.trim();
     const trimmedPassword = password.trim();
@@ -122,7 +161,13 @@ export default function SignInScreen() {
     try {
       const result = await AuthService.signIn(trimmedEmail, trimmedPassword);
       if (result.success) {
-        router.replace('/(tabs)');
+        // Check if user needs onboarding
+        const hasCompletedOnboarding = await checkOnboardingStatus();
+        if (hasCompletedOnboarding) {
+          router.replace('/(tabs)');
+        } else {
+          router.replace('/onboarding');
+        }
       } else {
         Alert.alert('Sign-in Error', result.error?.message || 'Invalid email or password. Please try again.');
       }
