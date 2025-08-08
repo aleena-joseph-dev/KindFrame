@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
@@ -5,12 +6,12 @@ import { Alert, Dimensions, Image, Modal, ScrollView, Text, TextInput, Touchable
 import { TopBar } from '@/components/ui/TopBar';
 import { SensoryColors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
-import { useGuestData } from '@/hooks/useGuestData';
 import { CameraIcon } from '../../components/ui/CameraIcon';
 import { FilmIcon } from '../../components/ui/FilmIcon';
 import { usePreviousScreen } from '../../components/ui/PreviousScreenContext';
-import { SaveWorkModal } from '../../components/ui/SaveWorkModal';
+
 import { SparklesIcon } from '../../components/ui/SparklesIcon';
 import { StarIcon } from '../../components/ui/StarIcon';
 import { DataService } from '../../services/dataService';
@@ -37,20 +38,16 @@ type SortOption = 'newest' | 'oldest' | 'emotion';
 export default function CoreMemoryScreen() {
   const { mode } = useSensoryMode();
   const colors = SensoryColors[mode];
-  const { addToStack, handleBack } = usePreviousScreen();
+  const { addToStack, handleBack, resetStack } = usePreviousScreen();
   const { session } = useAuth();
   const { 
-    isGuestMode, 
-    createCoreMemory, 
-    deleteCoreMemory,
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    hasUnsavedData,
+    triggerSaveWorkModal
   } = useGuestData();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   
   // Calculate responsive width
   const screenWidth = Dimensions.get('window').width;
@@ -62,6 +59,7 @@ export default function CoreMemoryScreen() {
   const [showSlideshow, setShowSlideshow] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [memoryToDelete, setMemoryToDelete] = useState<CoreMemory | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
   const [selectedMemory, setSelectedMemory] = useState<CoreMemory | null>(null);
   const [sortBy, setSortBy] = useState<SortOption>('newest');
   const [filterEmotion, setFilterEmotion] = useState<string>('');
@@ -86,6 +84,32 @@ export default function CoreMemoryScreen() {
   useEffect(() => {
     addToStack('core-memory');
     loadMemories();
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 CORE-MEMORY: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: core-memory -> menu -> home
+          resetStack();
+          console.log('🎯 CORE-MEMORY: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('core-memory');
+        }
+      } catch (error) {
+        console.error('🎯 CORE-MEMORY: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, []);
 
   // Slideshow functionality
@@ -128,6 +152,13 @@ export default function CoreMemoryScreen() {
 
   const loadMemories = async () => {
     try {
+      // If user is in guest mode, don't try to load from database
+      if (isGuestMode && !session) {
+        console.log('🎯 GUEST MODE: Skipping memory load from database');
+        setMemories([]);
+        return;
+      }
+
       const result = await DataService.getCoreMemories();
       if (result.success && result.data) {
         // Handle both single memory and array of memories
@@ -161,12 +192,6 @@ export default function CoreMemoryScreen() {
 
 
   const pickImage = async () => {
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
-      return;
-    }
-
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -186,64 +211,103 @@ export default function CoreMemoryScreen() {
 
   const addMemory = async () => {
     if (!title.trim()) {
-      Alert.alert('Error', 'Please add a title for your memory.');
-      return;
-    }
-
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
+      Alert.alert('Error', 'Please enter a title for your memory');
       return;
     }
 
     try {
-      const result = await createCoreMemory({
-        title: title.trim(),
-        description: description.trim() || undefined,
-        memory_date: selectedDate,
-        photo_url: photoUri || undefined,
-        tags: selectedEmotions,
-        importance_level: 3, // Default importance level
-        is_favorite: false
-      });
-
-      if (result.success && result.data) {
-        // Handle both single memory and array of memories
-        const dbMemory = Array.isArray(result.data) ? result.data[0] : result.data;
-        const newMemory: CoreMemory = {
-          id: dbMemory.id,
-          title: dbMemory.title,
-          description: dbMemory.description || '',
-          photoUri: dbMemory.photo_url,
-          date: dbMemory.memory_date || new Date(dbMemory.created_at).toISOString().split('T')[0],
-          emotions: dbMemory.tags || [],
-          createdAt: dbMemory.created_at,
-          memory_date: dbMemory.memory_date,
-          photo_url: dbMemory.photo_url,
-          tags: dbMemory.tags,
-          importance_level: dbMemory.importance_level,
-          is_favorite: dbMemory.is_favorite,
-          updated_at: dbMemory.updated_at
+      setIsLoading(true);
+      
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'core-memory' as const,
+          page: '/core-memory',
+          data: {
+            title: title.trim(),
+            description: description.trim() || '',
+            memory_date: selectedDate,
+            photo_url: photoUri || '',
+            tags: selectedEmotions,
+            importance_level: 3,
+            is_favorite: false
+          },
+          timestamp: Date.now(),
+          formState: {
+            title,
+            description,
+            photoUri,
+            selectedDate,
+            selectedEmotions
+          }
         };
+        
+        console.log('🎯 CORE-MEMORY: Starting to save memory for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 CORE-MEMORY: Memory data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 CORE-MEMORY: Showing save work modal');
+        triggerSaveWorkModal('core-memory', actionData);
+        return;
+      }
 
-        const updatedMemories = [newMemory, ...memories];
-        setMemories(updatedMemories);
-        
-        // Reset form
-        setTitle('');
-        setDescription('');
-        setPhotoUri('');
-        setSelectedDate(new Date().toISOString().split('T')[0]);
-        setSelectedEmotions([]);
-        setShowAddModal(false);
-        
-        Alert.alert('Success', 'Core memory added successfully!');
-      } else {
-        Alert.alert('Error', result.error || 'Failed to create memory');
+      // For authenticated users, save to database
+      try {
+        const result = await DataService.createCoreMemory({
+          title: title.trim(),
+          description: description.trim() || undefined,
+          memory_date: selectedDate,
+          photo_url: photoUri || undefined,
+          tags: selectedEmotions,
+          importance_level: 3,
+          is_favorite: false
+        });
+
+        if (result.success && result.data) {
+          // Handle both single memory and array of memories
+          const dbMemory = Array.isArray(result.data) ? result.data[0] : result.data;
+          const newMemory: CoreMemory = {
+            id: dbMemory.id,
+            title: dbMemory.title,
+            description: dbMemory.description || '',
+            photoUri: dbMemory.photo_url,
+            date: dbMemory.memory_date || new Date(dbMemory.created_at).toISOString().split('T')[0],
+            emotions: dbMemory.tags || [],
+            createdAt: dbMemory.created_at,
+            memory_date: dbMemory.memory_date,
+            photo_url: dbMemory.photo_url,
+            tags: dbMemory.tags,
+            importance_level: dbMemory.importance_level,
+            is_favorite: dbMemory.is_favorite,
+            updated_at: dbMemory.updated_at
+          };
+
+          const updatedMemories = [newMemory, ...memories];
+          setMemories(updatedMemories);
+          
+          // Reset form
+          setTitle('');
+          setDescription('');
+          setPhotoUri('');
+          setSelectedDate(new Date().toISOString().split('T')[0]);
+          setSelectedEmotions([]);
+          setShowAddModal(false);
+          
+          Alert.alert('Success', 'Core memory added successfully!');
+        } else {
+          Alert.alert('Error', result.error || 'Failed to create memory');
+        }
+      } catch (error) {
+        console.error('Error creating memory:', error);
+        Alert.alert('Error', 'Failed to create memory');
       }
     } catch (error) {
-      console.error('Error creating memory:', error);
-      Alert.alert('Error', 'Failed to create memory');
+      console.error('Error in addMemory:', error);
+      Alert.alert('Error', 'Failed to add memory');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -271,7 +335,7 @@ export default function CoreMemoryScreen() {
     
     try {
       console.log('Attempting to delete memory:', memoryToDelete.id);
-      const result = await deleteCoreMemory(memoryToDelete.id);
+      const result = await DataService.deleteCoreMemory(memoryToDelete.id);
       console.log('Delete result:', result);
       console.log('Result success:', result?.success);
       console.log('Result error:', result?.error);
@@ -314,11 +378,6 @@ export default function CoreMemoryScreen() {
   };
 
   const handleOpenAddModal = () => {
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
-      return;
-    }
     setShowAddModal(true);
   };
 
@@ -824,15 +883,7 @@ export default function CoreMemoryScreen() {
         </View>
       </Modal>
       
-      {/* Save Work Modal */}
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
+
     </View>
   );
 }

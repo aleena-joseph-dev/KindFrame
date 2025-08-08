@@ -16,10 +16,9 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import { TopBar } from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestData } from '@/hooks/useGuestData';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 
 interface Goal {
   id: string;
@@ -47,18 +46,15 @@ export default function GoalsScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, resetStack } = usePreviousScreen();
   const { session } = useAuth();
   const { 
-    isGuestMode, 
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    triggerSaveWorkModal
   } = useGuestData();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   
   const [goals, setGoals] = useState<Goal[]>([]);
   const [showAddGoal, setShowAddGoal] = useState(false);
@@ -78,6 +74,32 @@ export default function GoalsScreen() {
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('goals');
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 GOALS: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: goals -> menu -> home
+          resetStack();
+          console.log('🎯 GOALS: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('goals');
+        }
+      } catch (error) {
+        console.error('🎯 GOALS: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, [addToStack]);
 
   useEffect(() => {
@@ -103,18 +125,49 @@ export default function GoalsScreen() {
     }
   };
 
-  const handleAddGoal = () => {
+  const handleAddGoal = async () => {
     if (!newGoalTitle.trim()) {
       Alert.alert('Empty Goal', 'Please enter a goal title.');
       return;
     }
 
     // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
+    if (isGuestMode) {
+      const actionData = {
+        type: 'goal' as const,
+        page: '/goals',
+        data: {
+          title: newGoalTitle.trim(),
+          description: newGoalDescription.trim() || '',
+          target_date: newGoalTargetDate || '',
+          priority: newGoalPriority,
+          category: newGoalCategory,
+          status: 'active'
+        },
+        timestamp: Date.now(),
+        formState: {
+          newGoalTitle,
+          newGoalDescription,
+          newGoalTargetDate,
+          newGoalPriority,
+          newGoalCategory
+        }
+      };
+      
+      console.log('🎯 GOALS: Starting to save goal for guest user');
+      // Save to local storage first and wait for it to complete
+      await savePendingAction(actionData);
+      console.log('🎯 GOALS: Goal data saved to local storage');
+      
+      // Then show the save work modal
+      console.log('🎯 GOALS: Showing save work modal');
+      triggerSaveWorkModal('goal', actionData);
       return;
     }
 
+    // For authenticated users, save to database
+    // This part of the logic needs to be implemented if you have a DataService
+    // For now, we'll just save to local storage as a placeholder
     const newGoal: Goal = {
       id: Date.now().toString(),
       title: newGoalTitle.trim(),
@@ -712,14 +765,6 @@ export default function GoalsScreen() {
         </View>
       )}
       
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
     </SafeAreaView>
   );
 }

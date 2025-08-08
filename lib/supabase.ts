@@ -55,6 +55,26 @@ export type Database = {
           updated_at?: string;
         };
       };
+      mood_entries: {
+        Row: {
+          id: string;
+          user_id: string;
+          timestamp: string;
+          mood_value: { body: number; mind: number };
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          timestamp?: string;
+          mood_value: { body: number; mind: number };
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          timestamp?: string;
+          mood_value?: { body: number; mind: number };
+        };
+      };
     };
   };
 }; 

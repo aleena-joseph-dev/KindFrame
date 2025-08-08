@@ -1,6 +1,7 @@
-import { useGuestMode } from '@/contexts/GuestModeContext';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { supabase } from '@/lib/supabase';
 import { AuthService } from '@/services/authService';
+import { GuestDataService } from '@/services/guestDataService';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSession } from '@supabase/auth-helpers-react';
 import { useRouter } from 'expo-router';
@@ -10,7 +11,7 @@ import { ActivityIndicator, Text, View } from 'react-native';
 export default function AuthCallback() {
   const router = useRouter();
   const session = useSession();
-  const { isGuestMode, migrateGuestDataToUser } = useGuestMode();
+  const { syncGuestDataToDatabase } = useGuestData(); // Remove hasUnsavedData from context, use GuestDataService instead
   
   // Track if we've already processed the callback to avoid double processing
   const [hasProcessed, setHasProcessed] = React.useState(false);
@@ -51,6 +52,39 @@ export default function AuthCallback() {
   };
 
   const redirectToApp = async () => {
+    // Check if user came through guest mode flow
+    const cameThroughSaveWorkModal = await AsyncStorage.getItem('came_through_save_work_modal');
+    
+    if (cameThroughSaveWorkModal === 'true') {
+      // Get the original page from guest data
+      const pendingActions = await GuestDataService.getPendingActions();
+      let originalPage = '/(tabs)/notes'; // Default fallback
+      
+      if (pendingActions.length > 0) {
+        // Get the most recent action's page
+        const recentAction = pendingActions[pendingActions.length - 1];
+        const pageMapping = {
+          '/notes': '/(tabs)/notes',
+          '/calendar': '/(tabs)/calendar',
+          '/goals': '/(tabs)/goals',
+          '/todo': '/(tabs)/todo',
+          '/kanban': '/(tabs)/kanban',
+          '/quick-jot': '/(tabs)/quick-jot',
+          '/core-memory': '/(tabs)/core-memory'
+        };
+        originalPage = pageMapping[recentAction.page] || '/(tabs)/notes';
+      }
+      
+      console.log('🎯 AUTH CALLBACK: User came through guest mode flow, redirecting back to original page:', originalPage);
+      // Set a flag to indicate navigation stack should be reset when returning to the page
+      await AsyncStorage.setItem('reset_navigation_stack', 'true');
+      // Clear the original flag
+      await AsyncStorage.removeItem('came_through_save_work_modal');
+      // Guest mode users should go back to the page where they were
+      router.replace(originalPage as any);
+      return;
+    }
+    
     // Check if user needs onboarding
     const hasCompletedOnboarding = await checkOnboardingStatus();
     if (hasCompletedOnboarding) {
@@ -187,6 +221,29 @@ export default function AuthCallback() {
           
           if (error) {
             console.error('❌ Auth callback error:', error);
+            // Check if user was in guest mode and migrate data before default redirect
+            const hasUnsavedData = await GuestDataService.hasUnsavedData();
+            if (hasUnsavedData) {
+              try {
+                setIsMigrating(true);
+                console.log('🔍 Migrating guest data to user account...');
+                await syncGuestDataToDatabase();
+                console.log('🔍 Guest data migration completed');
+                // Clear the SaveWorkModal flag if it exists
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag in auth callback error path');
+                // Now call redirectToApp to handle the proper flow
+                await redirectToApp();
+                return; // Exit early to prevent default redirect
+              } catch (syncError) {
+                console.error('❌ Error migrating guest data:', syncError);
+                // Clear the flag even on error
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag on error in auth callback error path');
+              } finally {
+                setIsMigrating(false);
+              }
+            }
             router.replace('/calendar');
             return;
           }
@@ -196,6 +253,42 @@ export default function AuthCallback() {
             console.log('🔍 User:', data.session.user.email);
             console.log('🔍 Provider token exists:', !!data.session.provider_token);
             console.log('🔍 Provider token (first 20 chars):', data.session.provider_token ? data.session.provider_token.substring(0, 20) + '...' : 'NO TOKEN');
+            
+                    // Check if user came through SaveWorkModal
+        const cameThroughSaveWorkModal = await AsyncStorage.getItem('came_through_save_work_modal');
+        const hasUnsavedData = await GuestDataService.hasUnsavedData();
+        console.log('🔍 [AUTH DEBUG] Came through SaveWorkModal flag value:', cameThroughSaveWorkModal);
+        console.log('🔍 [AUTH DEBUG] Has unsaved data:', hasUnsavedData);
+        console.log('🔍 [AUTH DEBUG] Flag type:', typeof cameThroughSaveWorkModal);
+        console.log('🔍 [AUTH DEBUG] Flag === "true":', cameThroughSaveWorkModal === 'true');
+
+        // If user came through SaveWorkModal, prioritize the SaveWorkModal flow regardless of unsaved data
+        // (data might already be synced and cleared by this point)
+        if (cameThroughSaveWorkModal === 'true') {
+              console.log('🔍 [AUTH DEBUG] ENTERING SaveWorkModal guest data migration path');
+              try {
+                setIsMigrating(true);
+                console.log('🔍 User came through SaveWorkModal, migrating guest data...');
+                await syncGuestDataToDatabase();
+                console.log('🔍 Guest data migration completed');
+                // Clear the flag
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared came_through_save_work_modal flag');
+                // Now call redirectToApp to handle the proper flow
+                await redirectToApp();
+                return; // Exit early to prevent default redirect
+              } catch (error) {
+                console.error('❌ Error migrating guest data:', error);
+                // Clear the flag even on error
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag on error');
+              } finally {
+                setIsMigrating(false);
+              }
+            } else {
+              console.log('🔍 [AUTH DEBUG] NOT entering SaveWorkModal path - continuing with normal flow');
+              console.log('🔍 [AUTH DEBUG] Reason: flag !== "true" OR no unsaved data');
+            }
             
             // Check if we came from the test page, calendar page, or notes page
             const urlParams = new URLSearchParams(window.location.search);
@@ -262,10 +355,56 @@ export default function AuthCallback() {
               }
             } else {
               console.log('🔍 Default redirect to home page');
+              // Check if user was in guest mode and migrate data before default redirect
+              const hasUnsavedData = await GuestDataService.hasUnsavedData();
+              if (hasUnsavedData) {
+                try {
+                  setIsMigrating(true);
+                  console.log('🔍 Migrating guest data to user account...');
+                  await syncGuestDataToDatabase();
+                  console.log('🔍 Guest data migration completed');
+                  // Clear the SaveWorkModal flag if it exists
+                  await AsyncStorage.removeItem('came_through_save_work_modal');
+                  console.log('🔍 [AUTH DEBUG] Cleared flag in default redirect path');
+                  // Now call redirectToApp to handle the proper flow
+                  await redirectToApp();
+                  return; // Exit early to prevent default redirect
+                } catch (error) {
+                  console.error('❌ Error migrating guest data:', error);
+                  // Clear the flag even on error
+                  await AsyncStorage.removeItem('came_through_save_work_modal');
+                  console.log('🔍 [AUTH DEBUG] Cleared flag on error in default redirect path');
+                } finally {
+                  setIsMigrating(false);
+                }
+              }
               await redirectToApp();
             }
           } else {
             console.log('⚠️ No session found after OAuth, redirecting to home page');
+            // Check if user was in guest mode and migrate data before default redirect
+            const hasUnsavedData = await GuestDataService.hasUnsavedData();
+            if (hasUnsavedData) {
+              try {
+                setIsMigrating(true);
+                console.log('🔍 Migrating guest data to user account...');
+                await syncGuestDataToDatabase();
+                console.log('🔍 Guest data migration completed');
+                // Clear the SaveWorkModal flag if it exists
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag in "No session found" path');
+                // Now call redirectToApp to handle the proper flow
+                await redirectToApp();
+                return; // Exit early to prevent default redirect
+              } catch (error) {
+                console.error('❌ Error migrating guest data:', error);
+                // Clear the flag even on error
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag on error in "No session found" path');
+              } finally {
+                setIsMigrating(false);
+              }
+            }
             await redirectToApp();
           }
         } else {
@@ -276,6 +415,28 @@ export default function AuthCallback() {
           
           if (error) {
             console.error('❌ Session check error:', error);
+            // Check if user was in guest mode and migrate data before default redirect
+            const hasUnsavedData = await GuestDataService.hasUnsavedData();
+            if (hasUnsavedData) {
+              try {
+                setIsMigrating(true);
+                console.log('🔍 Migrating guest data to user account...');
+                await syncGuestDataToDatabase();
+                console.log('🔍 Guest data migration completed');
+                // Clear the SaveWorkModal flag if it exists
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag in session check error path');
+                // Don't call router.replace here - syncGuestDataToDatabase will handle the redirect
+                return; // Exit early to prevent onboarding redirect
+              } catch (syncError) {
+                console.error('❌ Error migrating guest data:', syncError);
+                // Clear the flag even on error
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag on error in session check error path');
+              } finally {
+                setIsMigrating(false);
+              }
+            }
             router.replace('/(tabs)');
             return;
           }
@@ -286,12 +447,16 @@ export default function AuthCallback() {
             console.log('🔍 Provider token exists:', !!data.session.provider_token);
             
             // Check if user was in guest mode and migrate data
-            if (isGuestMode) {
+            const hasUnsavedData = await GuestDataService.hasUnsavedData();
+            if (hasUnsavedData) {
               try {
                 setIsMigrating(true);
                 console.log('🔍 Migrating guest data to user account...');
-                await migrateGuestDataToUser(data.session.user.id);
+                await syncGuestDataToDatabase();
                 console.log('🔍 Guest data migration completed');
+                // Now call redirectToApp to handle the proper flow
+                await redirectToApp();
+                return; // Exit early to prevent default redirect
               } catch (error) {
                 console.error('❌ Error migrating guest data:', error);
               } finally {
@@ -302,11 +467,56 @@ export default function AuthCallback() {
             await redirectToApp();
           } else {
             console.log('⚠️ No session found, redirecting to home page');
+            // Check if user was in guest mode and migrate data before default redirect
+            const hasUnsavedData = await GuestDataService.hasUnsavedData();
+            if (hasUnsavedData) {
+              try {
+                setIsMigrating(true);
+                console.log('🔍 Migrating guest data to user account...');
+                await syncGuestDataToDatabase();
+                console.log('🔍 Guest data migration completed');
+                // Clear the SaveWorkModal flag if it exists
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag in final "No session found" path');
+                // Now call redirectToApp to handle the proper flow
+                await redirectToApp();
+                return; // Exit early to prevent default redirect
+              } catch (error) {
+                console.error('❌ Error migrating guest data:', error);
+                // Clear the flag even on error
+                await AsyncStorage.removeItem('came_through_save_work_modal');
+                console.log('🔍 [AUTH DEBUG] Cleared flag on error in final "No session found" path');
+              } finally {
+                setIsMigrating(false);
+              }
+            }
             await redirectToApp();
           }
         }
       } catch (error) {
         console.error('❌ Error in auth callback:', error);
+        // Check if user was in guest mode and migrate data before default redirect
+        const hasUnsavedData = await GuestDataService.hasUnsavedData();
+        if (hasUnsavedData) {
+          try {
+            setIsMigrating(true);
+            console.log('🔍 Migrating guest data to user account...');
+            await syncGuestDataToDatabase();
+            console.log('🔍 Guest data migration completed');
+            // Clear the SaveWorkModal flag if it exists
+            await AsyncStorage.removeItem('came_through_save_work_modal');
+            console.log('🔍 [AUTH DEBUG] Cleared flag in final error path');
+            // Don't call router.replace here - syncGuestDataToDatabase will handle the redirect
+            return; // Exit early to prevent default redirect
+          } catch (syncError) {
+            console.error('❌ Error migrating guest data:', syncError);
+            // Clear the flag even on error
+            await AsyncStorage.removeItem('came_through_save_work_modal');
+            console.log('🔍 [AUTH DEBUG] Cleared flag on error in final error path');
+          } finally {
+            setIsMigrating(false);
+          }
+        }
         router.replace('/(tabs)');
       }
     };

@@ -13,13 +13,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
+
 import { TopBar } from '@/components/ui/TopBar';
-import { useGuestData } from '@/hooks/useGuestData';
-import { useThemeColors } from '@/hooks/useThemeColors';
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestMode } from '@/contexts/GuestModeContext';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import { useGuestData } from '@/contexts/GuestDataContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface TodoTask {
   id: string;
@@ -47,18 +45,16 @@ function getVisibleTasks(tasks: TodoTask[], hideCompleted: boolean) {
 
 export default function TodoScreen() {
   const { mode, colors } = useThemeColors();
-  const { addToStack, handleBack } = usePreviousScreen();
+  const { addToStack, handleBack, resetStack } = usePreviousScreen();
   const { session } = useAuth();
   const { 
-    isGuestMode, 
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    hasUnsavedData,
+    triggerSaveWorkModal
   } = useGuestData();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   const [tasks, setTasks] = useState<TodoTask[]>([]);
   const [newTaskText, setNewTaskText] = useState('');
   const [currentDate, setCurrentDate] = useState(new Date());
@@ -67,6 +63,32 @@ export default function TodoScreen() {
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('todo');
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 TODO: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: todo -> menu -> home
+          resetStack();
+          console.log('🎯 TODO: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('todo');
+        }
+      } catch (error) {
+        console.error('🎯 TODO: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, [addToStack]);
 
   // Cleanup function to stop any animations when component unmounts
@@ -167,27 +189,59 @@ export default function TodoScreen() {
     console.log('Task toggled:', taskId, 'New completed status:', updatedTasks.find(t => t.id === taskId)?.completed);
   };
 
-  const addTask = () => {
-    if (!newTaskText.trim()) return;
-
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
+  const addTask = async () => {
+    if (!newTaskText.trim()) {
       return;
     }
 
-    const newTask: TodoTask = {
-      id: generateUniqueId('user'),
-      title: newTaskText.trim(),
-      completed: false,
-      category: { name: 'general', emoji: '📝' },
-      createdAt: new Date(),
-    };
+    try {
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'todo' as const,
+          page: '/todo',
+          data: {
+            title: newTaskText.trim(),
+            description: newTaskText.trim(),
+            is_completed: false,
+            priority: 'medium',
+            category: 'personal'
+          },
+          timestamp: Date.now(),
+          formState: {
+            newTaskText
+          }
+        };
+        
+        console.log('🎯 TODO: Starting to save task for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 TODO: Task data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 TODO: Showing save work modal');
+        triggerSaveWorkModal('todo', actionData);
+        return;
+      }
 
-    const updatedTasks = [newTask, ...tasks];
-    setTasks(updatedTasks);
-    saveTasks(updatedTasks);
-    setNewTaskText('');
+      // For authenticated users, save to database
+      const newTask: TodoTask = {
+        id: generateUniqueId('todo'),
+        title: newTaskText.trim(),
+        completed: false,
+        category: { name: 'general', emoji: '📝' },
+        createdAt: new Date(),
+        priority: 'medium'
+      };
+
+      const updatedTasks = [newTask, ...tasks];
+      setTasks(updatedTasks);
+      saveTasks(updatedTasks);
+      setNewTaskText('');
+    } catch (error) {
+      console.error('Error creating todo:', error);
+      Alert.alert('Error', 'Failed to create todo');
+    }
   };
 
   const deleteTask = (taskId: string) => {
@@ -451,14 +505,7 @@ export default function TodoScreen() {
         </View>
       </View>
       
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
+
     </SafeAreaView>
   );
 }

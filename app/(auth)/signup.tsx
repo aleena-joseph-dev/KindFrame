@@ -4,6 +4,7 @@ import { Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View 
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { SensoryColors } from '@/constants/Colors';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
@@ -12,6 +13,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export default function SignUpScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
+  const { handleSignUpFromHomeScreen } = useGuestData();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   // const [isAppleLoading, setIsAppleLoading] = useState(false); // Commented out
@@ -43,6 +45,22 @@ export default function SignUpScreen() {
   const handleGoogleSignUp = async () => {
     setIsGoogleLoading(true);
     try {
+      // Check SaveWorkModal flag before calling handleSignUpFromHomeScreen
+      const cameThroughSaveWorkModal = await AsyncStorage.getItem('came_through_save_work_modal');
+      console.log('🔍 [SIGNUP DEBUG] SaveWorkModal flag before handleSignUpFromHomeScreen:', cameThroughSaveWorkModal);
+      
+      // Only handle home screen sign-up scenario if user did NOT come through SaveWorkModal
+      if (cameThroughSaveWorkModal !== 'true') {
+        console.log('🔍 [SIGNUP DEBUG] User came from home screen, clearing task data');
+        await handleSignUpFromHomeScreen();
+      } else {
+        console.log('🔍 [SIGNUP DEBUG] User came through SaveWorkModal, preserving task data');
+      }
+      
+      // Check SaveWorkModal flag after calling handleSignUpFromHomeScreen
+      const flagAfter = await AsyncStorage.getItem('came_through_save_work_modal');
+      console.log('🔍 [SIGNUP DEBUG] SaveWorkModal flag after handleSignUpFromHomeScreen:', flagAfter);
+      
       const result = await AuthService.signInWithGoogle();
       
       if (result.success) {
@@ -237,6 +255,22 @@ export default function SignUpScreen() {
 
     setIsLoading(true);
     try {
+      // Check SaveWorkModal flag before calling handleSignUpFromHomeScreen
+      const cameThroughSaveWorkModal = await AsyncStorage.getItem('came_through_save_work_modal');
+      console.log('🔍 [SIGNUP DEBUG] SaveWorkModal flag before handleSignUpFromHomeScreen (email):', cameThroughSaveWorkModal);
+      
+      // Only handle home screen sign-up scenario if user did NOT come through SaveWorkModal
+      if (cameThroughSaveWorkModal !== 'true') {
+        console.log('🔍 [SIGNUP DEBUG] User came from home screen (email), clearing task data');
+        await handleSignUpFromHomeScreen();
+      } else {
+        console.log('🔍 [SIGNUP DEBUG] User came through SaveWorkModal (email), preserving task data');
+      }
+      
+      // Check SaveWorkModal flag after calling handleSignUpFromHomeScreen
+      const flagAfter = await AsyncStorage.getItem('came_through_save_work_modal');
+      console.log('🔍 [SIGNUP DEBUG] SaveWorkModal flag after handleSignUpFromHomeScreen (email):', flagAfter);
+      
       console.log('Starting signup process...');
       const result = await AuthService.signUp(trimmedEmail, trimmedPassword, fullName);
       

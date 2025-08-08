@@ -1,5 +1,6 @@
 import { AuthService } from '@/services/authService';
 import { DataService, CalendarEvent as DatabaseCalendarEvent } from '@/services/dataService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
@@ -14,10 +15,10 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
+
 import { TopBar } from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestData } from '@/hooks/useGuestData';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
 import { supabase } from '@/lib/supabase';
@@ -53,20 +54,16 @@ export default function CalendarScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, resetStack } = usePreviousScreen();
   const { session, loading: authLoading } = useAuth();
   const { 
-    isGuestMode, 
-    createCalendarEvent, 
-    deleteCalendarEvent,
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    hasUnsavedData,
+    triggerSaveWorkModal
   } = useGuestData();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string>('');
@@ -80,10 +77,37 @@ export default function CalendarScreen() {
   const [showGoogleCalendarSync, setShowGoogleCalendarSync] = useState(false);
   const [isGoogleCalendarConnected, setIsGoogleCalendarConnected] = useState(false);
   const [showSyncSuccess, setShowSyncSuccess] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('calendar');
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 CALENDAR: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: calendar -> menu -> home
+          resetStack();
+          console.log('🎯 CALENDAR: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('calendar');
+        }
+      } catch (error) {
+        console.error('🎯 CALENDAR: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, [addToStack]);
 
   useEffect(() => {
@@ -119,6 +143,13 @@ export default function CalendarScreen() {
 
   const loadEvents = async () => {
     try {
+      // If user is in guest mode, don't try to load from database
+      if (isGuestMode && !session) {
+        console.log('🎯 GUEST MODE: Skipping events load from database');
+        setEvents([]);
+        return;
+      }
+      
       // Get current month's start and end dates
       const currentMonthStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
       const currentMonthEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
@@ -359,139 +390,90 @@ export default function CalendarScreen() {
   };
 
   const handleAddEvent = async () => {
-    console.log('handleAddEvent called with:', {
-      title: newEventTitle,
-      date: newEventDate,
-      time: newEventTime,
-      description: newEventDescription,
-      type: newEventType,
-      isGuestMode,
-      session: !!session
-    });
-
-    if (!newEventTitle.trim() || !newEventDate) {
-      console.log('Validation failed: missing title or date');
-      return;
-    }
-
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      console.log('User in guest mode, prompting sign in');
-      promptSignIn();
+    if (!newEventTitle.trim()) {
+      Alert.alert('Error', 'Please enter an event title');
       return;
     }
 
     try {
-      // Validate date format
-      const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
-      if (!dateRegex.test(newEventDate)) {
-        Alert.alert('Error', 'Please enter a valid date in YYYY-MM-DD format');
-        return;
-      }
-
-      // Convert local date/time to ISO strings for database
-      // Fix: Ensure proper timezone handling and date parsing
-      let startDateTime: Date;
-      let endDateTime: Date;
+      setIsLoading(true);
       
-      if (newEventTime) {
-        // Validate time format
-        const timeRegex = /^\d{1,2}:\d{2}$/;
-        if (!timeRegex.test(newEventTime)) {
-          Alert.alert('Error', 'Please enter a valid time in HH:MM format');
-          return;
-        }
-
-        // If time is specified, create a proper datetime
-        const [hours, minutes] = newEventTime.split(':').map(Number);
-        
-        // Validate hours and minutes
-        if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) {
-          Alert.alert('Error', 'Please enter a valid time (hours: 0-23, minutes: 0-59)');
-          return;
-        }
-        
-        startDateTime = new Date(newEventDate + 'T00:00:00');
-        startDateTime.setHours(hours, minutes, 0, 0);
-        
-        endDateTime = new Date(startDateTime);
-        endDateTime.setHours(endDateTime.getHours() + 1); // Default 1 hour duration
-      } else {
-        // If no time specified, create all-day event
-        startDateTime = new Date(newEventDate + 'T00:00:00');
-        startDateTime.setHours(0, 0, 0, 0);
-        
-        endDateTime = new Date(newEventDate + 'T23:59:59');
-        endDateTime.setHours(23, 59, 59, 999);
-      }
-
-      // Validate that dates are valid before converting to ISO string
-      if (isNaN(startDateTime.getTime()) || isNaN(endDateTime.getTime())) {
-        Alert.alert('Error', 'Invalid date or time values. Please check your input.');
-        return;
-      }
-
-      console.log('Creating calendar event with:', {
-        title: newEventTitle.trim(),
-        start_time: startDateTime.toISOString(),
-        end_time: endDateTime.toISOString(),
-        all_day: !newEventTime
-      });
+      const startDateTime = new Date(newEventDate + (newEventTime ? 'T' + newEventTime : ''));
+      const endDateTime = new Date(startDateTime.getTime() + (newEventTime ? 60 * 60 * 1000 : 24 * 60 * 60 * 1000)); // 1 hour if time specified, 1 day if all day
 
       const eventData = {
         title: newEventTitle.trim(),
-        description: newEventDescription.trim() || undefined,
+        description: newEventDescription.trim() || '',
         start_time: startDateTime.toISOString(),
         end_time: endDateTime.toISOString(),
-        all_day: !newEventTime, // All day if no time specified
+        all_day: !newEventTime,
         color: getEventTypeColor(newEventType)
       };
 
-      console.log('Calling createCalendarEvent with:', eventData);
-      const result = await createCalendarEvent(eventData);
-      console.log('createCalendarEvent result:', result);
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'calendar-event' as const,
+          page: '/calendar',
+          data: eventData,
+          timestamp: Date.now(),
+          formState: {
+            newEventTitle,
+            newEventDescription,
+            newEventDate,
+            newEventTime,
+            newEventType
+          }
+        };
+        
+        console.log('🎯 CALENDAR: Starting to save event for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 CALENDAR: Event data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 CALENDAR: Showing save work modal');
+        triggerSaveWorkModal('calendar-event', actionData);
+        return;
+      }
+
+      // For authenticated users, save to database
+      console.log('Calling DataService.createCalendarEvent with:', eventData);
+      const result = await DataService.createCalendarEvent(eventData);
+      console.log('DataService.createCalendarEvent result:', result);
 
       if (result && result.success && result.data) {
-        const dbEvent = result.data as DatabaseCalendarEvent;
+        const dbEvent = Array.isArray(result.data) ? result.data[0] : result.data;
         const newEvent: CalendarEvent = {
           id: dbEvent.id,
-          title: dbEvent.title || '',
+          title: dbEvent.title,
           description: dbEvent.description || '',
-          date: new Date(dbEvent.start_time).toISOString().split('T')[0],
-          time: new Date(dbEvent.start_time).toTimeString().slice(0, 5),
-          type: newEventType,
-          completed: false,
+          date: formatDateForDisplay(dbEvent.start_time),
+          time: dbEvent.all_day ? undefined : new Date(dbEvent.start_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          type: 'event', // Default type, adjust if needed
+          completed: false, // Default completed status
           createdAt: new Date(dbEvent.created_at),
           start_time: dbEvent.start_time,
           end_time: dbEvent.end_time,
           all_day: dbEvent.all_day,
-          location: dbEvent.location || '',
-          color: dbEvent.color || '',
-          sync_source: dbEvent.sync_source || '',
-          external_id: dbEvent.external_id || ''
+          color: dbEvent.color
         };
 
-        console.log('Calendar event created successfully:', newEvent);
-
-        const updatedEvents = [...events, newEvent];
-        setEvents(updatedEvents);
-        
+        setEvents(prevEvents => [...prevEvents, newEvent]);
         setNewEventTitle('');
         setNewEventDescription('');
-        setNewEventDate('');
+        setNewEventDate(formatDateForStorage(new Date()));
         setNewEventTime('');
         setNewEventType('event');
         setShowAddEvent(false);
-        
-        // Reload events to ensure UI is updated
-        await loadEvents();
       } else {
-        console.error('Failed to create calendar event:', result?.error);
-        Alert.alert('Error', 'Failed to create event. Please try again.');
+        Alert.alert('Error', result?.error || 'Failed to create event');
       }
     } catch (error) {
-      console.error('Exception in handleAddEvent:', error);
-      Alert.alert('Error', 'An unexpected error occurred. Please try again.');
+      console.error('Error creating event:', error);
+      Alert.alert('Error', 'Failed to create event');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -515,7 +497,7 @@ export default function CalendarScreen() {
           onPress: async () => {
             try {
               console.log('Attempting to delete calendar event:', eventId);
-              const result = await deleteCalendarEvent(eventId);
+              const result = await DataService.deleteCalendarEvent(eventId);
               
               if (result && result.success) {
                 const updatedEvents = events.filter(event => event.id !== eventId);
@@ -890,15 +872,7 @@ export default function CalendarScreen() {
         </View>
       )}
       
-      {/* Save Work Modal */}
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
+
     </SafeAreaView>
   );
 }

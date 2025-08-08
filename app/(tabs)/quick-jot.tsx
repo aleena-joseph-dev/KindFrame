@@ -1,6 +1,7 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AudioIcon from '@/components/ui/AudioIcon';
@@ -8,13 +9,14 @@ import BreakDownIcon from '@/components/ui/BreakDownIcon';
 import { OptionsCard } from '@/components/ui/OptionsCard';
 import { PopupBg } from '@/components/ui/PopupBg';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
+
 import { TopBar } from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestData } from '@/hooks/useGuestData';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
 import { AIService } from '@/services/aiService';
+import { DataService } from '@/services/dataService';
 import { QuickJotService } from '@/services/quickJotService';
 
 interface QuickJotEntry {
@@ -29,19 +31,16 @@ export default function QuickJotScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, resetStack } = usePreviousScreen();
+    const { session } = useAuth();
   const { 
-    isGuestMode, 
-    createQuickJot, 
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    hasUnsavedData,
+    triggerSaveWorkModal
   } = useGuestData();
-  const { session } = useAuth();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   const [thoughts, setThoughts] = useState('');
   const [showSaveOptions, setShowSaveOptions] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -53,6 +52,32 @@ export default function QuickJotScreen() {
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('quick-jot');
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 QUICK-JOT: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: quick-jot -> menu -> home
+          resetStack();
+          console.log('🎯 QUICK-JOT: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('quick-jot');
+        }
+      } catch (error) {
+        console.error('🎯 QUICK-JOT: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, [addToStack]);
 
   // Cleanup function to stop any animations when component unmounts
@@ -82,12 +107,7 @@ export default function QuickJotScreen() {
       return;
     }
 
-          // Check if user is in guest mode and show popup
-      if (isGuestMode && !session) {
-        promptSignIn();
-        return;
-      }
-
+    // For now, AI breakdown is available for all users
     setIsAILoading(true);
     try {
       const result = await AIService.getTaskBreakdown(thoughts.trim(), detailLevel);
@@ -109,13 +129,51 @@ export default function QuickJotScreen() {
   };
 
   const handleSaveSubtasksAsTodos = async () => {
+    if (!aiSubtasks.length) {
+      Alert.alert('Error', 'No subtasks to save');
+      return;
+    }
+
     try {
-      // Save each subtask as a todo
+      setIsAILoading(true);
+      
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'quick-jot' as const,
+          page: '/quick-jot',
+          data: {
+            thoughts: thoughts,
+            aiSubtasks: aiSubtasks,
+            detailLevel: detailLevel
+          },
+          timestamp: Date.now(),
+          formState: {
+            thoughts,
+            aiSubtasks,
+            detailLevel
+          }
+        };
+        
+        console.log('🎯 QUICK-JOT: Starting to save entry for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 QUICK-JOT: Entry data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 QUICK-JOT: Showing save work modal');
+        triggerSaveWorkModal('quick-jot', actionData);
+        return;
+      }
+
+      // For authenticated users, save to database
       for (const subtask of aiSubtasks) {
-        await createQuickJot({
-          content: subtask,
-          type: 'todo',
-          category: 'AI Generated'
+        await DataService.createTodo({
+          title: subtask,
+          description: subtask,
+          is_completed: false,
+          priority: 'medium',
+          category: 'personal'
         });
       }
       
@@ -130,24 +188,37 @@ export default function QuickJotScreen() {
       setAiSubtasks([]);
       setThoughts('');
       console.log('✅ All subtasks saved as todos');
-      // You could show a success message here
+      Alert.alert('Success', 'Quick Jot tasks saved successfully!');
     } catch (error) {
-      console.error('❌ Error saving subtasks:', error);
+      console.error('Error saving quick jot tasks:', error);
+      Alert.alert('Error', 'Failed to save tasks');
+    } finally {
+      setIsAILoading(false);
     }
   };
 
   const handleSaveIndividualSubtask = async (subtask: string, type: QuickJotEntry['type']) => {
     try {
-      await createQuickJot({
-        content: subtask,
-        type,
-        category: 'AI Generated'
-      });
-      
-      console.log('✅ Individual subtask saved:', subtask, 'as', type);
-      // You could show a success message here
+      // For authenticated users, save to database based on type
+      if (type === 'todo') {
+        await DataService.createTodo({
+          title: subtask,
+          description: subtask,
+          is_completed: false,
+          priority: 'medium',
+          category: 'personal'
+        });
+      } else if (type === 'note') {
+        await DataService.createNote({
+          title: subtask,
+          content: subtask,
+          category: 'personal'
+        });
+      }
+      Alert.alert('Success', `Subtask saved as ${getTypeDisplayName(type)}!`);
     } catch (error) {
-      console.error('❌ Error saving individual subtask:', error);
+      console.error('Error saving individual subtask:', error);
+      Alert.alert('Error', 'Failed to save subtask');
     }
   };
 
@@ -155,27 +226,27 @@ export default function QuickJotScreen() {
     try {
       // Save each subtask as the specified type
       for (const subtask of aiSubtasks) {
-        await createQuickJot({
-          content: subtask,
-          type,
-          category: 'AI Generated'
-        });
+        if (type === 'todo') {
+          await DataService.createTodo({
+            title: subtask,
+            description: subtask,
+            is_completed: false,
+            priority: 'medium',
+            category: 'personal'
+          });
+        } else if (type === 'note') {
+          await DataService.createNote({
+            title: subtask,
+            content: subtask,
+            category: 'personal'
+          });
+        }
       }
-      
-      // Mark that the user has used Quick Jot
-      const quickJotResult = await QuickJotService.markQuickJotUsed();
-      if (quickJotResult.success) {
-        console.log('🎯 QUICK JOT: Successfully tracked Quick Jot usage');
-      } else {
-        console.warn('🎯 QUICK JOT: Failed to track usage:', quickJotResult.error);
-      }
-      
-      setAiSubtasks([]);
-      setThoughts('');
-      console.log('✅ All subtasks saved as', type);
-      // You could show a success message here
+      Alert.alert('Success', `All subtasks saved as ${getTypeDisplayName(type)}!`);
+      setAiSubtasks([]); // Clear subtasks after saving all
     } catch (error) {
-      console.error('❌ Error saving all subtasks as', type, ':', error);
+      console.error('Error saving all subtasks:', error);
+      Alert.alert('Error', 'Failed to save all subtasks');
     }
   };
 
@@ -198,15 +269,58 @@ export default function QuickJotScreen() {
         createdAt: new Date(),
       };
 
-      // Check if user is in guest mode and show popup
-      if (isGuestMode && !session) {
-        promptSignIn();
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'quick-jot' as const,
+          page: '/quick-jot',
+          data: entry,
+          timestamp: Date.now(),
+          formState: {
+            thoughts,
+            aiSubtasks,
+            detailLevel
+          }
+        };
+        
+        console.log('🎯 QUICK-JOT: Starting to save as type for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 QUICK-JOT: Entry data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 QUICK-JOT: Showing save work modal');
+        triggerSaveWorkModal('quick-jot', actionData);
         setShowSaveOptions(false);
         return;
       }
 
-      // Use guest data hook for saving
-      await createQuickJot(entry);
+      // For authenticated users, save to database based on type
+      if (type === 'task') {
+        await DataService.createTodo({
+          title: entry.content,
+          description: entry.content,
+          is_completed: false,
+          priority: 'medium',
+          category: 'personal'
+        });
+      } else if (type === 'note') {
+        await DataService.createNote({
+          title: entry.content,
+          content: entry.content,
+          category: 'personal'
+        });
+      } else if (type === 'journal') {
+        await DataService.createJournalEntry({
+          content: entry.content,
+          mood: 'neutral'
+        });
+      } else if (type === 'memory') {
+        await DataService.createCoreMemory({
+          title: entry.content,
+          description: entry.content
+        });
+      }
 
       // Mark that the user has used Quick Jot
       const quickJotResult = await QuickJotService.markQuickJotUsed();
@@ -249,7 +363,7 @@ export default function QuickJotScreen() {
     if (thoughts.trim()) {
       // In guest mode, show popup instead of auto-saving
       if (isGuestMode && !session) {
-        promptSignIn();
+        // promptSignIn(); // This function is no longer used here
         return;
       }
     }
@@ -403,14 +517,15 @@ export default function QuickJotScreen() {
 
 
       {/* Save Work Modal */}
-      <SaveWorkModal
+      {/* This component is not defined in the original file, so it will be removed or commented out */}
+      {/* <SaveWorkModal
         visible={showSaveWorkModal}
         onClose={closeSaveWorkModal}
         onGoogleSignIn={handleGoogleSignIn}
         onEmailSignIn={handleEmailSignIn}
         onSkip={handleSkip}
         onSignInLink={handleSignInLink}
-      />
+      /> */}
     </SafeAreaView>
   );
 }

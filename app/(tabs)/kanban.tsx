@@ -13,14 +13,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
 import { TopBar } from '@/components/ui/TopBar';
-import { useGuestData } from '@/hooks/useGuestData';
+import { useAuth } from '@/contexts/AuthContext';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { useAuth } from '@/contexts/AuthContext';
-import { useGuestMode } from '@/contexts/GuestModeContext';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
 
 interface KanbanTask {
   id: string;
@@ -41,19 +38,16 @@ export default function KanbanScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, resetStack } = usePreviousScreen();
   const { session } = useAuth();
   const { 
-    isGuestMode, 
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    triggerSaveWorkModal
   } = useGuestData();
   
+  // Check if user is in guest mode
+  const isGuestMode = !session;
+
   const [tasks, setTasks] = useState<KanbanTask[]>([]);
   const [showAddTask, setShowAddTask] = useState(false);
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -69,6 +63,32 @@ export default function KanbanScreen() {
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('kanban');
+
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 KANBAN: User came through guest mode flow, resetting navigation stack');
+
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: kanban -> menu -> home
+          resetStack();
+          console.log('🎯 KANBAN: Navigation stack reset for guest mode flow');
+
+          // Add the current screen to the reset stack
+          addToStack('kanban');
+        }
+      } catch (error) {
+        console.error('🎯 KANBAN: Error checking guest mode flow:', error);
+      }
+    };
+
+    checkGuestModeFlow();
   }, [addToStack]);
 
   useEffect(() => {
@@ -94,35 +114,65 @@ export default function KanbanScreen() {
     }
   };
 
-  const handleAddTask = () => {
+  const handleAddTask = async () => {
     if (!newTaskTitle.trim()) {
-      Alert.alert('Empty Task', 'Please enter a task title.');
+      Alert.alert('Error', 'Please enter a task title');
       return;
     }
 
-    // Check if user is in guest mode and show popup
-    if (isGuestMode && !session) {
-      promptSignIn();
-      return;
+    try {
+      // If user is in guest mode, show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'kanban-task' as const,
+          page: '/kanban',
+          data: {
+            title: newTaskTitle.trim(),
+            description: newTaskDescription.trim() || '',
+            column: 'todo',
+            priority: newTaskPriority
+          },
+          timestamp: Date.now(),
+          formState: {
+            newTaskTitle,
+            newTaskDescription,
+            newTaskPriority
+          }
+        };
+        
+        console.log('🎯 KANBAN: Starting to save task for guest user');
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        console.log('🎯 KANBAN: Task data saved to local storage');
+        
+        // Then show the save work modal
+        console.log('🎯 KANBAN: Showing save work modal');
+        triggerSaveWorkModal('kanban-task', actionData);
+        return;
+      }
+
+      // For authenticated users, save to local storage (placeholder)
+      const newTask: KanbanTask = {
+        id: Date.now().toString(),
+        title: newTaskTitle.trim(),
+        description: newTaskDescription.trim() || undefined,
+        column: 'todo',
+        createdAt: new Date(),
+        priority: newTaskPriority,
+      };
+
+      const updatedTasks = [...tasks, newTask];
+      setTasks(updatedTasks);
+      saveTasks(updatedTasks);
+      
+      setNewTaskTitle('');
+      setNewTaskDescription('');
+      setNewTaskPriority('medium');
+      setShowAddTask(false);
+    } catch (error) {
+      console.error('Error creating kanban task:', error);
+      Alert.alert('Error', 'Failed to create task');
     }
-
-    const newTask: KanbanTask = {
-      id: Date.now().toString(),
-      title: newTaskTitle.trim(),
-      description: newTaskDescription.trim() || undefined,
-      column: 'todo',
-      createdAt: new Date(),
-      priority: newTaskPriority,
-    };
-
-    const updatedTasks = [...tasks, newTask];
-    setTasks(updatedTasks);
-    saveTasks(updatedTasks);
-    
-    setNewTaskTitle('');
-    setNewTaskDescription('');
-    setNewTaskPriority('medium');
-    setShowAddTask(false);
   };
 
   const handleMoveTask = (taskId: string, newColumn: KanbanTask['column']) => {
@@ -329,14 +379,6 @@ export default function KanbanScreen() {
         </View>
       )}
       
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
     </SafeAreaView>
   );
 }

@@ -26,8 +26,10 @@ if (typeof document !== 'undefined') {
   }
 }
 
+import { GlobalSaveWorkModal } from '@/components/ui/GlobalSaveWorkModal';
 import { PreviousScreenProvider } from '@/components/ui/PreviousScreenContext';
 import { AuthProvider } from '@/contexts/AuthContext';
+import { GuestDataProvider } from '@/contexts/GuestDataContext';
 import { GuestModeProvider } from '@/contexts/GuestModeContext';
 import { OnboardingProvider } from '@/contexts/OnboardingContext';
 import { SensoryModeProvider } from '@/contexts/SensoryModeContext';
@@ -130,24 +132,27 @@ export default function RootLayout() {
           <GuestModeProvider>
             <SensoryModeProvider>
               <TutorialProvider>
-                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                  <PreviousScreenProvider>
-                  <Stack
-                    screenOptions={{
-                      contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
-                    }}
-                  >
-                    <Stack.Screen name="index" options={{ headerShown: false }} />
-                    <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-                    <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-                    <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-                    <Stack.Screen name="menu" options={{ headerShown: false }} />
-                    <Stack.Screen name="auth-callback/index" options={{ headerShown: false }} />
-                    <Stack.Screen name="+not-found" />
-                  </Stack>
-                  <StatusBar style="auto" />
-                              </PreviousScreenProvider>
-                </ThemeProvider>
+                <GuestDataProvider>
+                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                    <PreviousScreenProvider>
+                    <Stack
+                      screenOptions={{
+                        contentStyle: { backgroundColor: '#e0e5de' }, // Updated background color
+                      }}
+                    >
+                      <Stack.Screen name="index" options={{ headerShown: false }} />
+                      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+                      <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+                      <Stack.Screen name="onboarding" options={{ headerShown: false }} />
+                      <Stack.Screen name="menu" options={{ headerShown: false }} />
+                      <Stack.Screen name="auth-callback/index" options={{ headerShown: false }} />
+                      <Stack.Screen name="+not-found" />
+                    </Stack>
+                    <StatusBar style="auto" />
+                    <GlobalSaveWorkModal />
+                    </PreviousScreenProvider>
+                  </ThemeProvider>
+                </GuestDataProvider>
               </TutorialProvider>
             </SensoryModeProvider>
           </GuestModeProvider>

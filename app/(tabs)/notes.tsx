@@ -1,21 +1,22 @@
+
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestMode } from '@/contexts/GuestModeContext';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
-import { useGuestData } from '@/hooks/useGuestData';
-import { SaveWorkModal } from '@/components/ui/SaveWorkModal';
+import { useGuestData } from '@/contexts/GuestDataContext';
 import { supabase } from '@/lib/supabase';
 import { AuthService } from '@/services/authService';
 import { DataService, Note as DatabaseNote } from '@/services/dataService';
+import { GuestDataService } from '@/services/guestDataService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -43,20 +44,19 @@ export default function NotesScreen() {
   const colors = themeResult.colors;
   
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, navigationStack } = usePreviousScreen();
+  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, navigationStack, resetStack } = usePreviousScreen();
   const { session, loading: authLoading } = useAuth();
   const { 
-    isGuestMode, 
-    createNote, 
-    deleteNote,
-    promptSignIn, 
-    showSaveWorkModal, 
-    closeSaveWorkModal,
-    handleGoogleSignIn,
-    handleEmailSignIn,
-    handleSkip,
-    handleSignInLink
+    savePendingAction,
+    hasUnsavedData,
+    triggerSaveWorkModal,
+    showPrefilledForm,
+    prefilledFormData,
+    clearPrefilledForm
   } = useGuestData();
+  
+  // Check if user is in guest mode
+  const isGuestMode = !session;
   
   const [notes, setNotes] = useState<Note[]>([]);
   const [showAddNote, setShowAddNote] = useState(false);
@@ -78,12 +78,57 @@ export default function NotesScreen() {
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
     addToStack('notes');
+    
+    // Check if user came through guest mode authentication flow
+    // If so, reset the navigation stack to ensure proper back navigation
+    const checkGuestModeFlow = async () => {
+      try {
+        const resetNavigationStack = await AsyncStorage.getItem('reset_navigation_stack');
+        if (resetNavigationStack === 'true') {
+          console.log('🎯 NOTES: User came through guest mode flow, resetting navigation stack');
+          
+          // Clear the flag first
+          await AsyncStorage.removeItem('reset_navigation_stack');
+          
+          // Reset the navigation stack to ensure proper back navigation
+          // The user should be able to go back: notes -> menu -> home
+          resetStack();
+          console.log('🎯 NOTES: Navigation stack reset for guest mode flow');
+          
+          // Add the current screen to the reset stack
+          addToStack('notes');
+        }
+      } catch (error) {
+        console.error('🎯 NOTES: Error checking guest mode flow:', error);
+      }
+    };
+    
+    checkGuestModeFlow();
   }, [addToStack]);
 
   useEffect(() => {
     loadNotes();
     checkGoogleKeepConnection();
   }, [session, selectedCategory]); // Re-check when session or category changes
+
+  // Handle pre-filled form data
+  useEffect(() => {
+    if (showPrefilledForm && prefilledFormData && prefilledFormData.type === 'note') {
+      console.log('🎯 NOTES: Showing pre-filled form with data:', prefilledFormData);
+      
+      // Pre-fill the form with the saved data
+      const formState = prefilledFormData.formState as any;
+      setNewNoteTitle(formState.newNoteTitle || '');
+      setNewNoteContent(formState.newNoteContent || '');
+      setNewNoteCategory(formState.newNoteCategory || 'personal');
+      
+      // Show the modal
+      setShowAddNote(true);
+      
+      // Clear the pre-filled form data
+      clearPrefilledForm();
+    }
+  }, [showPrefilledForm, prefilledFormData, clearPrefilledForm]);
 
   // Load synced Google Keep notes when connection status changes
   useEffect(() => {
@@ -96,6 +141,14 @@ export default function NotesScreen() {
   const loadNotes = async () => {
     try {
       setIsLoading(true);
+      
+      // If user is in guest mode, don't try to load from database
+      if (isGuestMode && !session) {
+        console.log('🎯 GUEST MODE: Skipping notes load from database');
+        setNotes([]);
+        return;
+      }
+      
       const result = await DataService.getNotes(50, 0, selectedCategory === 'all' ? undefined : selectedCategory);
       if (result.success && result.data) {
         // Convert database notes to local note format
@@ -279,13 +332,50 @@ export default function NotesScreen() {
     try {
       setIsLoading(true);
       
-      // Check if user is in guest mode and show popup
-      if (isGuestMode && !session) {
-        promptSignIn();
+      // If user is in guest mode, save to local storage and show save work modal
+      if (isGuestMode) {
+        const actionData = {
+          type: 'note' as const,
+          page: '/notes',
+          data: {
+            title: newNoteTitle.trim(),
+            content: newNoteContent.trim(),
+            category: newNoteCategory,
+            tags: []
+          },
+          timestamp: Date.now(),
+          formState: {
+            newNoteTitle,
+            newNoteContent,
+            newNoteCategory
+          }
+        };
+        
+        console.log('🎯 NOTES: Starting to save note for guest user');
+        
+        // Save to local storage first and wait for it to complete
+        await savePendingAction(actionData);
+        
+        // Verify the data was saved before showing modal
+        const hasData = await GuestDataService.hasUnsavedData();
+        console.log('🎯 NOTES: After savePendingAction - hasUnsavedData:', hasData);
+        
+        if (!hasData) {
+          console.error('🎯 NOTES: Data was not saved properly, retrying...');
+          // Retry once
+          await savePendingAction(actionData);
+          const retryHasData = await GuestDataService.hasUnsavedData();
+          console.log('🎯 NOTES: After retry - hasUnsavedData:', retryHasData);
+        }
+        
+        // Then show the save work modal
+        console.log('🎯 NOTES: Showing save work modal');
+        triggerSaveWorkModal('note', actionData);
         return;
       }
 
-      const result = await createNote({
+      // For authenticated users, save to database
+      const result = await DataService.createNote({
         title: newNoteTitle.trim(),
         content: newNoteContent.trim(),
         category: newNoteCategory,
@@ -324,9 +414,9 @@ export default function NotesScreen() {
     try {
       setIsLoading(true);
       
-      // Check if user is in guest mode and show popup
-      if (isGuestMode && !session) {
-        promptSignIn();
+      // For now, only handle authenticated users for updates
+      if (isGuestMode) {
+        Alert.alert('Info', 'Note updates are only available for signed-in users.');
         return;
       }
 
@@ -365,13 +455,13 @@ export default function NotesScreen() {
       try {
         setIsLoading(true);
         
-        // Check if user is in guest mode and show popup
-        if (isGuestMode && !session) {
-          promptSignIn();
+        // For now, only handle authenticated users for deletes
+        if (isGuestMode) {
+          Alert.alert('Info', 'Note deletion is only available for signed-in users.');
           return;
         }
 
-        const result = await deleteNote(noteId);
+        const result = await DataService.deleteNote(noteId);
         
         if (result.success) {
           const updatedNotes = notes.filter(note => note.id !== noteId);
@@ -861,15 +951,7 @@ export default function NotesScreen() {
         </View>
       </Modal>
 
-      {/* Save Work Modal */}
-      <SaveWorkModal
-        visible={showSaveWorkModal}
-        onClose={closeSaveWorkModal}
-        onGoogleSignIn={handleGoogleSignIn}
-        onEmailSignIn={handleEmailSignIn}
-        onSkip={handleSkip}
-        onSignInLink={handleSignInLink}
-      />
+
     </SafeAreaView>
   );
 }
