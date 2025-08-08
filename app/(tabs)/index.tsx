@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AnimatedJotBoxIcon from '@/components/ui/AnimatedJotBoxIcon';
@@ -21,6 +21,9 @@ import SettingsIcon from '@/components/ui/SettingsIcon';
 import { SmileIcon } from '@/components/ui/SmileIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import { ThemeDropdown } from '@/components/ui/ThemeDropdown';
+
+import { TutorialCompletionPopup } from '@/components/ui/TutorialCompletionPopup';
+import { TutorialOverlay } from '@/components/ui/TutorialOverlay';
 import { SensoryColors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestMode } from '@/contexts/GuestModeContext';
@@ -28,10 +31,9 @@ import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useTutorial } from '@/contexts/TutorialContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
-import { TutorialButton } from '@/components/ui/TutorialButton';
-import { TutorialOverlay } from '@/components/ui/TutorialOverlay';
-import { AppreciationAnimation } from '@/components/ui/AppreciationAnimation';
 import { detectVisitType, getWelcomeMessage, shouldShowWelcomeMessage, updateVisitData } from '@/utils/visitTypeDetector';
+
+const { width, height } = Dimensions.get('window');
 
 interface FeatureItem {
   id: string;
@@ -50,12 +52,58 @@ export default function HomeScreen() {
   const { 
     hasCompletedTutorial, 
     showTutorial, 
-    showAppreciation, 
+    showCompletionPopup, 
     startTutorial, 
     completeTutorial, 
     skipTutorial, 
-    hideAppreciation 
+    hideCompletionPopup,
+    resetSessionState
   } = useTutorial();
+
+
+
+  // Tutorial button highlighting state
+  const [isTutorialButtonHighlighted, setIsTutorialButtonHighlighted] = useState(true);
+  const tutorialButtonScale = useRef(new Animated.Value(1)).current;
+  const tutorialButtonOpacity = useRef(new Animated.Value(1)).current;
+
+  // Start highlighting animation when component mounts
+  useEffect(() => {
+    if (isTutorialButtonHighlighted) {
+      const pulseAnimation = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(tutorialButtonScale, {
+              toValue: 1.1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(tutorialButtonOpacity, {
+              toValue: 0.7,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+          ]),
+          Animated.parallel([
+            Animated.timing(tutorialButtonScale, {
+              toValue: 1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+            Animated.timing(tutorialButtonOpacity, {
+              toValue: 1,
+              duration: 1000,
+              useNativeDriver: true,
+            }),
+          ]),
+        ])
+      );
+      pulseAnimation.start();
+      return () => pulseAnimation.stop();
+    }
+  }, [isTutorialButtonHighlighted, tutorialButtonScale, tutorialButtonOpacity]);
+
+
 
   // Loading state for splash
   const [loading, setLoading] = useState(true);
@@ -95,10 +143,132 @@ export default function HomeScreen() {
   const zoneOutRef = useRef<View>(null);
   const moodTrackerRef = useRef<View>(null);
 
+
+
+  // State to track which component should be highlighted
+  const [highlightedComponent, setHighlightedComponent] = useState<string | null>(null);
+  
+  // State to store component positions for duplicate positioning
+  const [componentPositions, setComponentPositions] = useState<{
+    quickJot: { x: number; y: number; width: number; height: number } | null;
+    menu: { x: number; y: number; width: number; height: number } | null;
+    todaysFocus: { x: number; y: number; width: number; height: number } | null;
+    zoneOut: { x: number; y: number; width: number; height: number } | null;
+    moodTracker: { x: number; y: number; width: number; height: number } | null;
+  }>({
+    quickJot: null,
+    menu: null,
+    todaysFocus: null,
+    zoneOut: null,
+    moodTracker: null,
+  });
+
+  // Debug tutorial state
+  console.log('🎯 TUTORIAL STATE DEBUG:', { 
+    hasCompletedTutorial, 
+    showTutorial, 
+    showCompletionPopup,
+    highlightedComponent,
+    componentPositions
+  });
+
+  // Monitor highlighted component changes
+  useEffect(() => {
+    console.log('🎯 HIGHLIGHTED COMPONENT CHANGED:', highlightedComponent);
+  }, [highlightedComponent]);
+
+  // Clear highlighted component when tutorial is not running
+  useEffect(() => {
+    if (!showTutorial && highlightedComponent !== null) {
+      console.log('🎯 TUTORIAL STOPPED: Clearing highlighted component');
+      setHighlightedComponent(null);
+    }
+  }, [showTutorial, highlightedComponent]);
+
+
+
+  // Function to measure component positions
+  const measureComponent = (ref: React.RefObject<View>) => {
+    return new Promise<{ x: number; y: number; width: number; height: number }>((resolve) => {
+      if (ref.current) {
+        ref.current.measure((x, y, width, height, pageX, pageY) => {
+          resolve({ x: pageX, y: pageY, width, height });
+        });
+      } else {
+        resolve({ x: 0, y: 0, width: 0, height: 0 });
+      }
+    });
+  };
+
+  // Function to measure all components
+  const measureAllComponents = async () => {
+    console.log('🎯 MEASURING COMPONENTS...');
+    
+    const [quickJot, menu, todaysFocus, zoneOut, moodTracker] = await Promise.all([
+      measureComponent(quickJotRef),
+      measureComponent(menuRef),
+      measureComponent(todaysFocusRef),
+      measureComponent(zoneOutRef),
+      measureComponent(moodTrackerRef),
+    ]);
+
+    const positions = {
+      quickJot,
+      menu,
+      todaysFocus,
+      zoneOut,
+      moodTracker,
+    };
+
+    console.log('🎯 COMPONENT POSITIONS MEASURED:', positions);
+    setComponentPositions(positions);
+  };
+
+  // Measure components when tutorial starts
+  const handleStartTutorial = async () => {
+    console.log('🎯 TUTORIAL STARTING: Measuring components...');
+    // Stop highlighting when tutorial starts
+    setIsTutorialButtonHighlighted(false);
+    await measureAllComponents();
+    console.log('🎯 TUTORIAL STARTING: Calling startTutorial...');
+    console.log('🎯 BEFORE START - showTutorial:', showTutorial, 'highlightedComponent:', highlightedComponent);
+    startTutorial();
+    // Reset highlighted component and set to first step
+    setHighlightedComponent('quick-jot');
+    console.log('🎯 AFTER START - showTutorial:', showTutorial, 'highlightedComponent: quick-jot (reset to step 1)');
+  };
+
+  // Handle tutorial step changes to manage highlighted component
+  const handleTutorialStepChange = (stepIndex: number) => {
+    const steps = ['quick-jot', 'menu', 'todays-focus', 'zone-out', 'mood-tracker'];
+    const currentStepId = steps[stepIndex];
+    console.log('🎯 TUTORIAL STEP CHANGE CALLED:', { stepIndex, currentStepId, showTutorial });
+    
+    // Always set highlighted component when step changes, regardless of showTutorial state
+    console.log('🎯 SETTING HIGHLIGHTED COMPONENT TO:', currentStepId);
+    setHighlightedComponent(currentStepId);
+  };
+
+  // Reset z-index when tutorial completes or skips
+  const handleTutorialComplete = () => {
+    setHighlightedComponent(null);
+    completeTutorial();
+  };
+
+  const handleTutorialSkip = () => {
+    setHighlightedComponent(null);
+    skipTutorial();
+  };
+
   // Reset navigation stack when home screen mounts
   useEffect(() => {
     resetStack();
   }, [resetStack]);
+
+  // Debug tutorial state changes
+  useEffect(() => {
+    console.log('🎯 TUTORIAL STATE CHANGED:', { showTutorial, highlightedComponent });
+  }, [showTutorial, highlightedComponent]);
 
   // Load user data and detect visit type
   const loadUserDataAndDetectVisit = async () => {
@@ -526,23 +696,21 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>  
-      {/* Tutorial Button */}
-      <TutorialButton
-        onPress={startTutorial}
-        hasCompletedTutorial={hasCompletedTutorial}
-      />
+
 
       {/* Tutorial Overlay */}
       <TutorialOverlay
         visible={showTutorial}
-        onComplete={completeTutorial}
-        onSkip={skipTutorial}
+        onComplete={handleTutorialComplete}
+        onSkip={handleTutorialSkip}
+        componentPositions={componentPositions}
+        onStepChange={handleTutorialStepChange}
       />
 
-      {/* Appreciation Animation */}
-      <AppreciationAnimation
-        visible={showAppreciation}
-        onComplete={hideAppreciation}
+      {/* Tutorial Completion Popup */}
+      <TutorialCompletionPopup
+        visible={showCompletionPopup}
+        onSkip={hideCompletionPopup}
       />
 
       {/* Top HUD */}
@@ -559,6 +727,26 @@ export default function HomeScreen() {
           onThemeChange={handleThemeChange}
           colors={colors}
         />
+        <Animated.View
+          style={[
+            styles.tutorialButton,
+            {
+              backgroundColor: colors.primary,
+              borderWidth: 2,
+              borderColor: isTutorialButtonHighlighted ? colors.accent || '#ff6b6b' : colors.primary,
+              transform: [{ scale: tutorialButtonScale }],
+              opacity: tutorialButtonOpacity,
+            }
+          ]}
+        >
+          <TouchableOpacity 
+            style={styles.tutorialButtonTouchable}
+            onPress={handleStartTutorial}
+            accessibilityLabel="Tutorial"
+          >
+            <Text style={[styles.tutorialButtonText, { color: colors.background }]}>?</Text>
+          </TouchableOpacity>
+        </Animated.View>
         <TouchableOpacity 
           style={[styles.settingsButton, { backgroundColor: colors.profileBackground }]}
           onPress={handleProfilePress}
@@ -597,7 +785,15 @@ export default function HomeScreen() {
       )}
 
       {/* Today's Focus Card */}
-      <View style={[styles.focusCard, { backgroundColor: colors.surface }]}>  
+      <View 
+        ref={todaysFocusRef}
+        style={[
+          styles.focusCard, 
+          { 
+            backgroundColor: colors.surface,
+          }
+        ]}
+      >  
         <View style={styles.focusHeader}>
           <Text style={[styles.focusTitle, { color: colors.text }]}>Today's Focus</Text>
           <TouchableOpacity 
@@ -648,9 +844,17 @@ export default function HomeScreen() {
       {/* Spacer */}
       <View style={{ flex: 1 }} />
 
-      {/* Floating Menu Button (bottom-left) */}
+                  {/* Floating Menu Button (bottom-left) */}
       <TouchableOpacity 
-        style={styles.floatingMenuButton} 
+        ref={menuRef}
+        style={[
+          styles.floatingMenuButton,
+          {
+            position: 'absolute',
+            bottom: 100,
+            left: 20,
+          }
+        ]}
         onPress={() => {
           addToStack('home');
           router.push('/menu');
@@ -660,35 +864,219 @@ export default function HomeScreen() {
       </TouchableOpacity>
 
       {/* Floating JotBox Button (bottom-right) */}
-      <TouchableOpacity
-        style={styles.floatingJotBoxButton}
-        onPress={() => {
-          setIsJotBoxAnimating(true);
-          setTimeout(() => setIsJotBoxAnimating(false), 8500);
-          router.push('/(tabs)/quick-jot');
+      <View 
+        style={{
+          position: 'absolute',
+          bottom: 100,
+          right: 20,
         }}
       >
-        <AnimatedJotBoxIcon size={40} isAnimating={isJotBoxAnimating} isCompleted={isJotBoxCompleted} color={colors.icon} />
-      </TouchableOpacity>
+        <TouchableOpacity
+          ref={quickJotRef}
+          style={[
+            styles.floatingJotBoxButton,
+          ]}
+          
+          onPress={() => {
+            setIsJotBoxAnimating(true);
+            setTimeout(() => setIsJotBoxAnimating(false), 8500);
+            router.push('/(tabs)/quick-jot');
+          }}
+        >
+          <AnimatedJotBoxIcon size={40} isAnimating={isJotBoxAnimating} isCompleted={isJotBoxCompleted} color={colors.icon} />
+        </TouchableOpacity>
+      </View>
 
       {/* Bottom Navigation */}
-      <View style={[styles.bottomNav, { backgroundColor: colors.cardBackground }]}>  
+      <View style={[
+        styles.bottomNav, 
+        { 
+          backgroundColor: colors.cardBackground,
+        }
+      ]}>
         {/* Center icons only */}
         <View style={styles.centerIcons}>
-          <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Zone Out')}>
-            <HeadphonesIcon size={28} color={colors.icon} />
-            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Zone Out</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.centerIconBtn} onPress={() => router.push('/(tabs)/mood-tracker')}>
-            <SmileIcon size={28} color={colors.icon} />
-            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Mood Tracker</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Profile')}>
-            <ProfileIcon size={28} color={colors.icon} />
-            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
-          </TouchableOpacity>
+          {/* Zone Out Icon Container */}
+          <View 
+            ref={zoneOutRef}
+            style={[
+              styles.iconContainer,
+              { 
+                backgroundColor: 'white',
+                borderRadius: 12,
+                padding: 8,
+              }
+            ]}
+          >
+            <TouchableOpacity 
+              style={styles.centerIconBtn}
+              onPress={() => handleFeaturePress('Zone Out')}
+            >
+              <HeadphonesIcon size={28} color={colors.icon} />
+              <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Zone Out</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Mood Tracker Icon Container */}
+          <View 
+            ref={moodTrackerRef}
+            style={[
+              styles.iconContainer,
+              { 
+                backgroundColor: 'white',
+                borderRadius: 12,
+                padding: 8,
+              }
+            ]}
+          >
+            <TouchableOpacity 
+              style={styles.centerIconBtn}
+              onPress={() => router.push('/(tabs)/mood-tracker')}
+            >
+              <SmileIcon size={28} color={colors.icon} />
+              <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Mood Tracker</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Profile Icon Container */}
+          <View style={styles.iconContainer}>
+            <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Profile')}>
+              <ProfileIcon size={28} color={colors.icon} />
+              <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
+
+      {/* Tutorial Highlight Components - Duplicates positioned above overlay */}
+      {showTutorial && highlightedComponent && (
+        <>
+          {console.log('🎯 RENDERING DUPLICATE FOR:', highlightedComponent, 'SHOW_TUTORIAL:', showTutorial, 'HIGHLIGHTED:', highlightedComponent)}
+          {/* Quick Jot Duplicate */}
+          {highlightedComponent === 'quick-jot' && (
+            <View
+              className="tutorial-highlight-component"
+              style={{
+                position: 'absolute',
+                bottom: 100,
+                right: 20,
+                width: 70,
+                height: 70,
+                zIndex: 3000,
+              }}
+            >
+              <View style={[styles.floatingJotBoxButton, { backgroundColor: 'white' }]}>
+                <AnimatedJotBoxIcon size={40} isAnimating={false} isCompleted={false} color={colors.icon} />
+              </View>
+            </View>
+          )}
+
+          {/* Menu Duplicate */}
+          {highlightedComponent === 'menu' && componentPositions.menu && (
+            <View
+              className="tutorial-highlight-component"
+              style={{
+                position: 'absolute',
+                left: componentPositions.menu.x,
+                top: componentPositions.menu.y,
+                width: componentPositions.menu.width,
+                height: componentPositions.menu.height,
+                zIndex: 3000,
+              }}
+            >
+              <View style={[styles.floatingMenuButton, { backgroundColor: 'white' }]}>
+                <MenuIcon size={40} color={colors.icon} isAnimating={false} />
+              </View>
+            </View>
+          )}
+
+          {/* Today's Focus Duplicate */}
+          {highlightedComponent === 'todays-focus' && componentPositions.todaysFocus && (
+            <View
+              className="tutorial-highlight-component"
+              style={{
+                position: 'absolute',
+                left: componentPositions.todaysFocus.x,
+                top: componentPositions.todaysFocus.y,
+                width: componentPositions.todaysFocus.width,
+                height: componentPositions.todaysFocus.height,
+                zIndex: 3000,
+              }}
+            >
+              <View style={[styles.focusCard, { backgroundColor: colors.surface, margin: 0, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.1, shadowRadius: 4, elevation: 3 }]}>
+                <View style={styles.focusHeader}>
+                  <Text style={[styles.focusTitle, { color: colors.text }]}>Today's Focus</Text>
+                  <View style={[styles.chevronButton, { opacity: 0.5 }]}>
+                    <ChevronIcon size={20} color={colors.textSecondary} isExpanded={false} />
+                  </View>
+                </View>
+                
+                {/* Current Task Section */}
+                <View style={[styles.taskSection, { backgroundColor: '#f8fafc' }]}>
+                  <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Current Task</Text>
+                  <View style={styles.taskRow}>
+                    <Text style={[styles.taskTextActive, { color: '#3b82f6' }]}>Morning meditation</Text>
+                    <View style={[styles.taskIndicator, { backgroundColor: '#3b82f6' }]} />
+                  </View>
+                </View>
+                
+                {/* Next Task Section */}
+                <View style={[styles.taskSection, { backgroundColor: '#fefefe' }]}>
+                  <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Next Task</Text>
+                  <View style={styles.taskRow}>
+                    <Text style={[styles.taskTextInactive, { color: colors.textSecondary }]}>Review project goals</Text>
+                    <View style={[styles.taskIndicator, { backgroundColor: '#d1d5db' }]} />
+                  </View>
+                </View>
+              </View>
+            </View>
+          )}
+
+          {/* Zone Out Duplicate */}
+          {highlightedComponent === 'zone-out' && componentPositions.zoneOut && (
+            <View
+              className="tutorial-highlight-component"
+              style={{
+                position: 'absolute',
+                left: componentPositions.zoneOut.x,
+                top: componentPositions.zoneOut.y,
+                width: componentPositions.zoneOut.width,
+                height: componentPositions.zoneOut.height,
+                zIndex: 3000,
+              }}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: 'white', borderRadius: 12, padding: 8 }]}>
+                <TouchableOpacity style={styles.centerIconBtn}>
+                  <HeadphonesIcon size={28} color={colors.icon} />
+                  <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Zone Out</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Mood Tracker Duplicate */}
+          {highlightedComponent === 'mood-tracker' && componentPositions.moodTracker && (
+            <View
+              className="tutorial-highlight-component"
+              style={{
+                position: 'absolute',
+                left: componentPositions.moodTracker.x,
+                top: componentPositions.moodTracker.y,
+                width: componentPositions.moodTracker.width,
+                height: componentPositions.moodTracker.height,
+                zIndex: 3000,
+              }}
+            >
+              <View style={[styles.iconContainer, { backgroundColor: 'white', borderRadius: 12, padding: 8 }]}>
+                <TouchableOpacity style={styles.centerIconBtn}>
+                  <SmileIcon size={28} color={colors.icon} />
+                  <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Mood Tracker</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+        </>
+      )}
     </SafeAreaView>
   );
 }
@@ -835,6 +1223,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginLeft: 10, // Added padding
   },
+  tutorialButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginLeft: 10,
+  },
+  tutorialButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  tutorialButtonTouchable: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   focusCard: {
     marginHorizontal: 20,
     marginBottom: 20,
@@ -934,34 +1340,30 @@ const styles = StyleSheet.create({
     padding: 4,
     alignItems: 'center',
   },
+  iconContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   bottomNavText: {
     marginTop: 4,
     fontSize: 12,
     textAlign: 'center',
   },
   floatingMenuButton: {
-    position: 'absolute',
-    bottom: 100, // Adjust as needed
-    left: 20,
     backgroundColor: 'white',
     borderRadius: 25,
     padding: 15,
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
     elevation: 5,
-    zIndex: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },
   floatingJotBoxButton: {
-    position: 'absolute',
-    bottom: 100, // Adjust as needed
-    right: 20,
     backgroundColor: 'white',
     borderRadius: 25,
     padding: 15,
     boxShadow: '0 2px 4px rgba(0, 0, 0, 0.2)',
     elevation: 5,
-    zIndex: 10,
     justifyContent: 'center',
     alignItems: 'center',
   },

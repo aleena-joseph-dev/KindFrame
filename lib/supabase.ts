@@ -24,6 +24,7 @@ export type Database = {
           sensory_mode: 'low' | 'medium' | 'high';
           preferences: any;
           settings: any;
+          quick_jot: boolean;
           created_at: string;
           updated_at: string;
         };
@@ -36,6 +37,7 @@ export type Database = {
           sensory_mode?: 'low' | 'medium' | 'high';
           preferences?: any;
           settings?: any;
+          quick_jot?: boolean;
           created_at?: string;
           updated_at?: string;
         };
@@ -48,6 +50,7 @@ export type Database = {
           sensory_mode?: 'low' | 'medium' | 'high';
           preferences?: any;
           settings?: any;
+          quick_jot?: boolean;
           created_at?: string;
           updated_at?: string;
         };

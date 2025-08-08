@@ -1,14 +1,15 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface TutorialContextType {
   hasCompletedTutorial: boolean;
   showTutorial: boolean;
-  showAppreciation: boolean;
+  showCompletionPopup: boolean;
   startTutorial: () => void;
   completeTutorial: () => void;
   skipTutorial: () => void;
-  hideAppreciation: () => void;
+  hideCompletionPopup: () => void;
+  resetSessionState: () => void; // For testing purposes
 }
 
 const TutorialContext = createContext<TutorialContextType | undefined>(undefined);
@@ -16,7 +17,8 @@ const TutorialContext = createContext<TutorialContextType | undefined>(undefined
 export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [hasCompletedTutorial, setHasCompletedTutorial] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
-  const [showAppreciation, setShowAppreciation] = useState(false);
+  const [showCompletionPopup, setShowCompletionPopup] = useState(false);
+  const [hasShownCompletionPopupThisSession, setHasShownCompletionPopupThisSession] = useState(false);
 
   // Load tutorial completion status on app start
   useEffect(() => {
@@ -41,25 +43,53 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   };
 
   const startTutorial = () => {
+    console.log('🎯 TUTORIAL CONTEXT: startTutorial called');
     setShowTutorial(true);
+    setShowCompletionPopup(false); // Hide completion popup if it was showing
+    console.log('🎯 TUTORIAL CONTEXT: showTutorial set to true');
   };
 
   const completeTutorial = () => {
     setShowTutorial(false);
     setHasCompletedTutorial(true);
-    setShowAppreciation(true);
+    
+    // Only show completion popup if it hasn't been shown this session
+    if (!hasShownCompletionPopupThisSession) {
+      console.log('🎯 TUTORIAL: Showing completion popup (first time this session)');
+      setShowCompletionPopup(true);
+      setHasShownCompletionPopupThisSession(true);
+    } else {
+      console.log('🎯 TUTORIAL: Skipping completion popup (already shown this session)');
+    }
+    
     saveTutorialStatus(true);
   };
 
   const skipTutorial = () => {
     setShowTutorial(false);
     setHasCompletedTutorial(true);
-    setShowAppreciation(true);
+    
+    // Only show completion popup if it hasn't been shown this session
+    if (!hasShownCompletionPopupThisSession) {
+      console.log('🎯 TUTORIAL: Showing completion popup (first time this session)');
+      setShowCompletionPopup(true);
+      setHasShownCompletionPopupThisSession(true);
+    } else {
+      console.log('🎯 TUTORIAL: Skipping completion popup (already shown this session)');
+    }
+    
     saveTutorialStatus(true);
   };
 
-  const hideAppreciation = () => {
-    setShowAppreciation(false);
+  const hideCompletionPopup = () => {
+    setShowCompletionPopup(false);
+    // Mark that the popup has been shown this session
+    setHasShownCompletionPopupThisSession(true);
+  };
+
+  const resetSessionState = () => {
+    setHasShownCompletionPopupThisSession(false);
+    console.log('🎯 TUTORIAL CONTEXT: Session state reset - completion popup can be shown again');
   };
 
   return (
@@ -67,11 +97,12 @@ export const TutorialProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       value={{
         hasCompletedTutorial,
         showTutorial,
-        showAppreciation,
+        showCompletionPopup,
         startTutorial,
         completeTutorial,
         skipTutorial,
-        hideAppreciation,
+        hideCompletionPopup,
+        resetSessionState,
       }}
     >
       {children}

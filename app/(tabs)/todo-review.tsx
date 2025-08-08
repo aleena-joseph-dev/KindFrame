@@ -2,13 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    FlatList,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,6 +16,7 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import { TopBar } from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { AIService } from '@/services/aiService';
+import { QuickJotService } from '@/services/quickJotService';
 
 interface TodoTask {
   id: string;
@@ -74,6 +75,14 @@ export default function TodoReviewScreen() {
       
       // Save to todo database
       await AsyncStorage.setItem('todoTasks', JSON.stringify(updatedTasks));
+      
+      // Mark that the user has used Quick Jot
+      const quickJotResult = await QuickJotService.markQuickJotUsed();
+      if (quickJotResult.success) {
+        console.log('🎯 QUICK JOT: Successfully tracked Quick Jot usage from todo review');
+      } else {
+        console.warn('🎯 QUICK JOT: Failed to track usage from todo review:', quickJotResult.error);
+      }
       
       Alert.alert(
         'Tasks Saved!',

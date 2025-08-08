@@ -15,6 +15,7 @@ import { useGuestData } from '@/hooks/useGuestData';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
 import { AIService } from '@/services/aiService';
+import { QuickJotService } from '@/services/quickJotService';
 
 interface QuickJotEntry {
   id: string;
@@ -118,6 +119,14 @@ export default function QuickJotScreen() {
         });
       }
       
+      // Mark that the user has used Quick Jot
+      const quickJotResult = await QuickJotService.markQuickJotUsed();
+      if (quickJotResult.success) {
+        console.log('🎯 QUICK JOT: Successfully tracked Quick Jot usage');
+      } else {
+        console.warn('🎯 QUICK JOT: Failed to track usage:', quickJotResult.error);
+      }
+      
       setAiSubtasks([]);
       setThoughts('');
       console.log('✅ All subtasks saved as todos');
@@ -153,6 +162,14 @@ export default function QuickJotScreen() {
         });
       }
       
+      // Mark that the user has used Quick Jot
+      const quickJotResult = await QuickJotService.markQuickJotUsed();
+      if (quickJotResult.success) {
+        console.log('🎯 QUICK JOT: Successfully tracked Quick Jot usage');
+      } else {
+        console.warn('🎯 QUICK JOT: Failed to track usage:', quickJotResult.error);
+      }
+      
       setAiSubtasks([]);
       setThoughts('');
       console.log('✅ All subtasks saved as', type);
@@ -183,17 +200,21 @@ export default function QuickJotScreen() {
 
       // Check if user is in guest mode and show popup
       if (isGuestMode && !session) {
-        promptSignIn(
-          "Save Your Quick Jot",
-          "To save your quick jot and access it across devices, please create an account or sign in.",
-          "quick jots"
-        );
+        promptSignIn();
         setShowSaveOptions(false);
         return;
       }
 
       // Use guest data hook for saving
       await createQuickJot(entry);
+
+      // Mark that the user has used Quick Jot
+      const quickJotResult = await QuickJotService.markQuickJotUsed();
+      if (quickJotResult.success) {
+        console.log('🎯 QUICK JOT: Successfully tracked Quick Jot usage');
+      } else {
+        console.warn('🎯 QUICK JOT: Failed to track usage:', quickJotResult.error);
+      }
 
       setThoughts('');
       setShowSaveOptions(false);
@@ -228,11 +249,7 @@ export default function QuickJotScreen() {
     if (thoughts.trim()) {
       // In guest mode, show popup instead of auto-saving
       if (isGuestMode && !session) {
-        promptSignIn(
-          "Save Your Thoughts",
-          "To save your thoughts and access them later, please create an account or sign in.",
-          "thoughts"
-        );
+        promptSignIn();
         return;
       }
     }
