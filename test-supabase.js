@@ -19,15 +19,15 @@ async function testConnection() {
   try {
     // Test basic connection
     console.log('1. Testing basic connection...');
-    const { data, error } = await supabase.from('users').select('count').limit(1);
+    const { data, error } = await supabase.from('user_profiles').select('count').limit(1);
     
     if (error) {
       console.log('❌ Connection failed:', error.message);
-      console.log('💡 This might be expected if the users table doesn\'t exist yet.');
+      console.log('💡 This might be expected if the user_profiles table doesn\'t exist yet.');
       console.log('   Run the database schema first using: node setup-supabase.js\n');
     } else {
       console.log('✅ Connection successful!');
-      console.log('📊 Users table is accessible');
+      console.log('📊 User profiles table is accessible');
     }
 
     // Test auth configuration

@@ -88,10 +88,18 @@ export const SensoryModeProvider: React.FC<{ children: React.ReactNode }> = ({ c
 
       console.log('🔄 LOADING MODE FROM DATABASE for user:', currentUser.id);
       
-      if (currentUser.profile?.settings?.mode) {
-        const savedMode = currentUser.profile.settings.mode as SensoryMode;
+      // FIXED: Check both profile.settings.mode and direct settings.mode (similar to nickname fix)
+      const savedMode = currentUser.profile?.settings?.mode || currentUser.settings?.mode;
+      
+      console.log('🔍 MODE LOADING DEBUG:', {
+        'profile.settings.mode': currentUser.profile?.settings?.mode,
+        'direct.settings.mode': currentUser.settings?.mode,
+        'final_savedMode': savedMode
+      });
+      
+      if (savedMode) {
         console.log('✅ MODE LOADED FROM DATABASE:', savedMode);
-        return savedMode;
+        return savedMode as SensoryMode;
       } else {
         console.log('⚠️ NO MODE IN DATABASE: User has no saved mode');
         return null;

@@ -42,6 +42,17 @@ interface FeatureItem {
   isVisible: boolean;
 }
 
+interface TodaysTask {
+  id: string;
+  title: string;
+  type: 'note' | 'todo' | 'kanban' | 'goal' | 'pomodoro';
+  tag?: string;
+  tagColor?: string;
+  dueTime?: string;
+  createdAt: string;
+  isActive?: boolean;
+}
+
 export default function HomeScreen() {
   const colorScheme = useColorScheme();
   const router = useRouter();
@@ -132,6 +143,23 @@ export default function HomeScreen() {
   
   // Track if animations have been completed in this session
   const [hasCompletedAnimations, setHasCompletedAnimations] = useState(false);
+  
+  // Enhanced session tracking for analytics and performance
+  const [sessionData, setSessionData] = useState({
+    sessionStartTime: Date.now(),
+    screenViewTime: 0,
+    interactionCount: 0,
+    searchQueries: [] as string[],
+    featuresAccessed: [] as string[],
+    performanceMetrics: {
+      loadTime: 0,
+      animationCompleteTime: 0,
+    }
+  });
+
+  // Today's Focus task management state
+  const [todaysTasks, setTodaysTasks] = useState<TodaysTask[]>([]);
+  const [showTaskCreationMenu, setShowTaskCreationMenu] = useState(false);
   
   // Track if this is the first time loading the app
   const isFirstLoad = useRef(true);
@@ -304,24 +332,27 @@ export default function HomeScreen() {
         
         // === TEST 2: Nickname Loading on Restart ===
         console.log('=== TEST 2: Nickname Loading on Restart ===');
-        // Trust the database - use the nickname stored in settings
-        let nickname = currentUser.profile?.settings?.nickname || currentUser.full_name || 'there';
         
-        console.log('Nickname resolution:', {
+        // FIXED: Prioritize user-input nickname from database settings
+        // Don't fall back to email-derived full_name
+        let nickname = currentUser.profile?.settings?.nickname || currentUser.settings?.nickname || 'there';
+        
+        console.log('Nickname resolution (FIXED):', {
           'userId': currentUser.id,
           'profileExists': !!currentUser.profile,
-          'settings.nickname': currentUser.profile?.settings?.nickname,
-          'auth.full_name': currentUser.full_name,
+          'profile.settings.nickname': currentUser.profile?.settings?.nickname,
+          'direct.settings.nickname': currentUser.settings?.nickname,
+          'auth.full_name (IGNORED)': currentUser.full_name,
           'final_nickname': nickname
         });
         
-        if (currentUser.profile?.settings?.nickname) {
-          console.log('✅ SUCCESS: Using nickname from profile settings:', nickname);
-        } else if (currentUser.full_name) {
-          console.log('⚠️ FALLBACK: Using auth user full_name:', nickname);
+        if (currentUser.profile?.settings?.nickname || currentUser.settings?.nickname) {
+          console.log('✅ SUCCESS: Using user-input nickname from database:', nickname);
         } else {
-          console.log('❌ DEFAULT: No nickname data found, using default');
+          console.log('❌ DEFAULT: No user nickname found in database, using default "there"');
         }
+        
+        console.log('Using nickname for welcome message:', nickname);
         
         // Generate welcome message
         const message = getWelcomeMessage(visitData, nickname);
@@ -463,6 +494,15 @@ export default function HomeScreen() {
       if (isMounted.current) {
         setLoading(false);
         loadUserDataAndDetectVisit();
+        
+        // Track load completion performance
+        setSessionData(prev => ({
+          ...prev,
+          performanceMetrics: {
+            ...prev.performanceMetrics,
+            loadTime: Date.now() - prev.sessionStartTime
+          }
+        }));
       }
     }, 1200);
 
@@ -532,6 +572,11 @@ export default function HomeScreen() {
     return () => {
       // Mark component as unmounted
       isMounted.current = false;
+      
+      // Log session summary before cleanup
+      const summary = getSessionSummary();
+      console.log('📊 HOME SCREEN SESSION SUMMARY:', summary);
+      
       // Cleanup function that runs when component unmounts
       setIsJotBoxAnimating(false);
       setIsSimpleAnimating(false);
@@ -550,7 +595,7 @@ export default function HomeScreen() {
         menuAnimationRef.current.stop?.();
       }
     };
-  }, []);
+  }, [sessionData]);
 
   // Stop animations when screen loses focus
   useFocusEffect(
@@ -578,6 +623,10 @@ export default function HomeScreen() {
   );
 
   const handleFeaturePress = (feature: string) => {
+    // Track feature access for analytics
+    trackInteraction('feature_press', { feature });
+    trackFeatureAccess(feature);
+    
     if (feature === 'To-Do List') {
       router.push('/(tabs)/todo');
     } else if (feature === 'Kanban Board') {
@@ -593,6 +642,8 @@ export default function HomeScreen() {
     } else {
       Alert.alert('Feature Coming Soon', `${feature} will be available in the next update!`);
     }
+    
+    console.log('🎯 NAVIGATION:', { feature, timestamp: Date.now() });
   };
 
   const handleThemeChange = async (theme: 'calm' | 'highEnergy' | 'normal' | 'relax') => {
@@ -606,8 +657,254 @@ export default function HomeScreen() {
 
   const handleSearch = (query: string) => {
     setSearchQuery(query);
-    // TODO: Implement search functionality
-    console.log('Searching for:', query);
+    
+    // Track search interaction for analytics
+    trackInteraction('search', { query: query.trim() });
+    
+    if (!query.trim()) {
+      console.log('🔍 SEARCH: Query cleared');
+      return;
+    }
+    
+    console.log('🔍 SEARCH: Searching for:', query);
+    
+    // Add to search queries tracking
+    setSessionData(prev => ({
+      ...prev,
+      searchQueries: [...prev.searchQueries, query.trim()].slice(-10) // Keep last 10 searches
+    }));
+    
+    // Search through available features and navigate to relevant screens
+    const searchResults = searchFeatures(query.toLowerCase());
+    
+    if (searchResults.length > 0) {
+      console.log('🎯 SEARCH RESULTS:', searchResults);
+      
+      // If there's an exact or high-confidence match, navigate directly
+      const bestMatch = searchResults[0];
+      if (bestMatch.confidence >= 0.8) {
+        console.log('✅ SEARCH: High confidence match found, navigating to:', bestMatch.route);
+        trackInteraction('search_navigation', { feature: bestMatch.name, confidence: bestMatch.confidence });
+        router.push(bestMatch.route as any);
+      } else {
+        console.log('📋 SEARCH: Multiple matches found, user can select from results');
+        // Could show a search results modal here in future implementation
+      }
+    } else {
+      console.log('❌ SEARCH: No results found for query:', query);
+      trackInteraction('search_no_results', { query });
+    }
+  };
+
+  // Search feature implementation
+  const searchFeatures = (query: string) => {
+    const searchableFeatures = [
+      // Main features
+      { name: 'todo', keywords: ['todo', 'task', 'tasks', 'checklist', 'list', 'to-do', 'to do'], route: '/(tabs)/todo', confidence: 1.0 },
+      { name: 'notes', keywords: ['note', 'notes', 'write', 'writing', 'journal', 'jot'], route: '/(tabs)/notes', confidence: 1.0 },
+      { name: 'kanban', keywords: ['kanban', 'board', 'project', 'organize', 'workflow'], route: '/(tabs)/kanban', confidence: 1.0 },
+      { name: 'calendar', keywords: ['calendar', 'schedule', 'events', 'appointments', 'time'], route: '/(tabs)/calendar', confidence: 1.0 },
+      { name: 'goals', keywords: ['goal', 'goals', 'target', 'objectives', 'achievement'], route: '/(tabs)/goals', confidence: 1.0 },
+      { name: 'pomodoro', keywords: ['pomodoro', 'timer', 'focus', 'productivity', 'work'], route: '/(tabs)/pomodoro', confidence: 1.0 },
+      { name: 'mood', keywords: ['mood', 'feeling', 'emotions', 'tracker', 'wellness'], route: '/(tabs)/mood-tracker', confidence: 1.0 },
+      { name: 'meditation', keywords: ['meditate', 'meditation', 'mindfulness', 'calm', 'relax'], route: '/(tabs)/meditation', confidence: 1.0 },
+      { name: 'breathe', keywords: ['breathe', 'breathing', 'breath', 'exercise'], route: '/(tabs)/breathe', confidence: 1.0 },
+      { name: 'music', keywords: ['music', 'audio', 'sound', 'playlist'], route: '/(tabs)/music', confidence: 1.0 },
+      { name: 'core-memory', keywords: ['memory', 'memories', 'important', 'core', 'remember'], route: '/(tabs)/core-memory', confidence: 1.0 },
+      
+      // Quick access features
+      { name: 'quick-jot', keywords: ['quick', 'jot', 'fast', 'capture', 'idea'], route: '/(tabs)/quick-jot', confidence: 0.9 },
+      { name: 'zone-out', keywords: ['zone', 'out', 'break', 'pause', 'rest'], route: '/(tabs)/zone-out', confidence: 0.9 },
+      
+      // Settings and profile
+      { name: 'explore', keywords: ['explore', 'discover', 'new', 'features'], route: '/(tabs)/explore', confidence: 0.8 },
+      { name: 'settings', keywords: ['settings', 'preferences', 'config', 'options'], route: '/menu', confidence: 0.8 },
+      { name: 'profile', keywords: ['profile', 'account', 'user'], route: '/menu', confidence: 0.7 },
+    ];
+
+    const results = [];
+    
+    for (const feature of searchableFeatures) {
+      for (const keyword of feature.keywords) {
+        if (keyword.includes(query) || query.includes(keyword)) {
+          // Calculate confidence based on how well the query matches
+          let confidence = feature.confidence;
+          
+          // Exact match gets highest confidence
+          if (keyword === query) {
+            confidence = 1.0;
+          }
+          // Starts with query gets high confidence
+          else if (keyword.startsWith(query)) {
+            confidence *= 0.9;
+          }
+          // Contains query gets medium confidence
+          else if (keyword.includes(query)) {
+            confidence *= 0.7;
+          }
+          // Query contains keyword gets lower confidence
+          else if (query.includes(keyword)) {
+            confidence *= 0.6;
+          }
+          
+          results.push({
+            name: feature.name,
+            route: feature.route,
+            confidence,
+            matchedKeyword: keyword
+          });
+          break; // Only add once per feature
+        }
+      }
+    }
+    
+    // Sort by confidence (highest first) and remove duplicates
+    const uniqueResults = results.filter((result, index, self) => 
+      index === self.findIndex(r => r.name === result.name)
+    );
+    
+    return uniqueResults.sort((a, b) => b.confidence - a.confidence);
+  };
+
+  // Today's Focus task management functions
+  const addTodaysTask = (task: Omit<TodaysTask, 'id' | 'createdAt'>) => {
+    const newTask: TodaysTask = {
+      ...task,
+      id: Date.now().toString(),
+      createdAt: new Date().toISOString(),
+    };
+    
+    setTodaysTasks(prev => {
+      const updated = [...prev, newTask].slice(-2); // Keep only latest 2 tasks
+      console.log('✅ TASK ADDED:', newTask.title, 'Total tasks:', updated.length);
+      return updated;
+    });
+    
+    trackInteraction('task_added', { type: task.type, title: task.title });
+  };
+
+  const removeTodaysTask = (taskId: string) => {
+    setTodaysTasks(prev => {
+      const updated = prev.filter(task => task.id !== taskId);
+      console.log('🗑️ TASK REMOVED:', taskId, 'Remaining tasks:', updated.length);
+      return updated;
+    });
+    
+    trackInteraction('task_removed', { taskId });
+  };
+
+  const openTaskCreationMenu = () => {
+    setShowTaskCreationMenu(true);
+    trackInteraction('task_creation_menu_opened');
+  };
+
+  const handleTaskCreation = (type: TodaysTask['type']) => {
+    setShowTaskCreationMenu(false);
+    
+    // Create a sample task based on type (in real implementation, this would open the respective screen)
+    const taskTitles = {
+      note: 'New Note',
+      todo: 'New Task',
+      kanban: 'New Card',
+      goal: 'New Goal',
+      pomodoro: 'Focus Session'
+    };
+    
+    const taskColors = {
+      note: '#3b82f6',
+      todo: '#10b981',
+      kanban: '#f59e0b',
+      goal: '#8b5cf6',
+      pomodoro: '#ef4444'
+    };
+
+    addTodaysTask({
+      title: taskTitles[type],
+      type,
+      tag: type.charAt(0).toUpperCase() + type.slice(1),
+      tagColor: taskColors[type],
+      dueTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      isActive: true
+    });
+
+    // Navigate to appropriate screen
+    const routes = {
+      note: '/(tabs)/notes',
+      todo: '/(tabs)/todo',
+      kanban: '/(tabs)/kanban',
+      goal: '/(tabs)/goals',
+      pomodoro: '/(tabs)/pomodoro'
+    };
+
+    router.push(routes[type] as any);
+  };
+
+  const openTaskDetail = (task: TodaysTask) => {
+    trackInteraction('task_opened', { taskId: task.id, type: task.type });
+    
+    const routes = {
+      note: '/(tabs)/notes',
+      todo: '/(tabs)/todo',
+      kanban: '/(tabs)/kanban',
+      goal: '/(tabs)/goals',
+      pomodoro: '/(tabs)/pomodoro'
+    };
+
+    router.push(routes[task.type] as any);
+  };
+
+  const getTaskIcon = (type: TodaysTask['type']) => {
+    const iconProps = { size: 16, color: '#6b7280' };
+    switch (type) {
+      case 'note':
+        return <NotesIcon {...iconProps} />;
+      case 'todo':
+        return <CheckIcon {...iconProps} />;
+      case 'kanban':
+        return <KanbanIcon {...iconProps} />;
+      case 'goal':
+        return <TargetIcon {...iconProps} />;
+      case 'pomodoro':
+        return <ClockIcon {...iconProps} />;
+      default:
+        return null;
+    }
+  };
+
+  // Enhanced session tracking functions
+  const trackInteraction = (type: string, data?: any) => {
+    setSessionData(prev => ({
+      ...prev,
+      interactionCount: prev.interactionCount + 1
+    }));
+    
+    console.log('📊 SESSION TRACKING:', {
+      type,
+      data,
+      timestamp: Date.now(),
+      totalInteractions: sessionData.interactionCount + 1
+    });
+  };
+
+  const trackFeatureAccess = (featureName: string) => {
+    setSessionData(prev => ({
+      ...prev,
+      featuresAccessed: [...new Set([...prev.featuresAccessed, featureName])]
+    }));
+  };
+
+  const getSessionSummary = () => {
+    const currentTime = Date.now();
+    const sessionDuration = currentTime - sessionData.sessionStartTime;
+    
+    return {
+      sessionDurationMs: sessionDuration,
+      sessionDurationMin: Math.round(sessionDuration / 60000 * 100) / 100,
+      totalInteractions: sessionData.interactionCount,
+      uniqueFeaturesAccessed: sessionData.featuresAccessed.length,
+      searchQueries: sessionData.searchQueries.length,
+      performanceMetrics: sessionData.performanceMetrics
+    };
   };
 
   const handleFeatureToggle = (featureId: string) => {
@@ -620,27 +917,14 @@ export default function HomeScreen() {
     );
   };
 
-  const handleProfilePress = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AuthService.signOut();
-              router.replace('/(auth)/signin');
-            } catch (error) {
-              console.error('Error during logout:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+  const handleSettingsPress = () => {
+    trackInteraction('settings_opened');
+    router.push('/settings');
+  };
+
+  const handleProfilePress = () => {
+    trackInteraction('profile_opened');
+    router.push('/profile');
   };
 
   const visibleFeatures = features.filter(feature => feature.isVisible);
@@ -713,6 +997,65 @@ export default function HomeScreen() {
         onSkip={hideCompletionPopup}
       />
 
+      {/* Task Creation Menu Modal */}
+      {showTaskCreationMenu && (
+        <View style={styles.modalOverlay}>
+          <View style={[styles.taskCreationModal, { backgroundColor: colors.surface }]}>
+            <View style={styles.taskCreationHeader}>
+              <Text style={[styles.taskCreationTitle, { color: colors.text }]}>Create New Task</Text>
+              <TouchableOpacity 
+                style={styles.modalCloseButton}
+                onPress={() => setShowTaskCreationMenu(false)}
+              >
+                <Text style={[styles.modalCloseText, { color: colors.textSecondary }]}>×</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <View style={styles.taskTypeOptions}>
+              <TouchableOpacity 
+                style={[styles.taskTypeButton, { backgroundColor: '#f0f9ff', borderColor: '#3b82f6' }]}
+                onPress={() => handleTaskCreation('note')}
+              >
+                <NotesIcon size={24} color="#3b82f6" />
+                <Text style={[styles.taskTypeText, { color: '#3b82f6' }]}>Note</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.taskTypeButton, { backgroundColor: '#f0fdf4', borderColor: '#10b981' }]}
+                onPress={() => handleTaskCreation('todo')}
+              >
+                <CheckIcon size={24} color="#10b981" />
+                <Text style={[styles.taskTypeText, { color: '#10b981' }]}>Todo</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.taskTypeButton, { backgroundColor: '#fffbeb', borderColor: '#f59e0b' }]}
+                onPress={() => handleTaskCreation('kanban')}
+              >
+                <KanbanIcon size={24} color="#f59e0b" />
+                <Text style={[styles.taskTypeText, { color: '#f59e0b' }]}>Kanban</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.taskTypeButton, { backgroundColor: '#faf5ff', borderColor: '#8b5cf6' }]}
+                onPress={() => handleTaskCreation('goal')}
+              >
+                <TargetIcon size={24} color="#8b5cf6" />
+                <Text style={[styles.taskTypeText, { color: '#8b5cf6' }]}>Goal</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.taskTypeButton, { backgroundColor: '#fef2f2', borderColor: '#ef4444' }]}
+                onPress={() => handleTaskCreation('pomodoro')}
+              >
+                <ClockIcon size={24} color="#ef4444" />
+                <Text style={[styles.taskTypeText, { color: '#ef4444' }]}>Pomodoro</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Top HUD */}
       <View style={[styles.topHud, { backgroundColor: colors.topBarBackground }]}>  
         <Image
@@ -749,7 +1092,7 @@ export default function HomeScreen() {
         </Animated.View>
         <TouchableOpacity 
           style={[styles.settingsButton, { backgroundColor: colors.profileBackground }]}
-          onPress={handleProfilePress}
+          onPress={handleSettingsPress}
           accessibilityLabel="Settings"
         >
           <SettingsIcon size={24} color={colors.profilePhoto} />
@@ -785,7 +1128,7 @@ export default function HomeScreen() {
       )}
 
       {/* Today's Focus Card */}
-      <View 
+      <TouchableOpacity 
         ref={todaysFocusRef}
         style={[
           styles.focusCard, 
@@ -793,53 +1136,96 @@ export default function HomeScreen() {
             backgroundColor: colors.surface,
           }
         ]}
+        onPress={() => {
+          trackInteraction('todays_focus_detailed_view_opened');
+          router.push('/todays-focus');
+        }}
       >  
         <View style={styles.focusHeader}>
           <Text style={[styles.focusTitle, { color: colors.text }]}>Today's Focus</Text>
-          <TouchableOpacity 
-            onPress={() => setShowFullSchedule(v => !v)}
-            style={styles.chevronButton}
-          >
-            <ChevronIcon size={20} color={colors.textSecondary} isExpanded={showFullSchedule} />
-          </TouchableOpacity>
-        </View>
-        
-        {/* Current Task Section */}
-        <View style={[styles.taskSection, { backgroundColor: '#f8fafc' }]}>
-          <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Current Task</Text>
-          <View style={styles.taskRow}>
-            <Text style={[styles.taskTextActive, { color: '#3b82f6' }]}>Morning meditation</Text>
-            <View style={[styles.taskIndicator, { backgroundColor: '#3b82f6' }]} />
+          <View style={styles.expandIndicator}>
+            <Text style={[styles.expandText, { color: colors.textSecondary }]}>View All →</Text>
           </View>
         </View>
         
-        {/* Next Task Section */}
-        <View style={[styles.taskSection, { backgroundColor: '#fefefe' }]}>
-          <Text style={[styles.taskLabel, { color: colors.textSecondary }]}>Next Task</Text>
-          <View style={styles.taskRow}>
-            <Text style={[styles.taskTextInactive, { color: colors.textSecondary }]}>Review project goals</Text>
-            <View style={[styles.taskIndicator, { backgroundColor: '#d1d5db' }]} />
+        {todaysTasks.length === 0 ? (
+          /* Empty State */
+          <View style={styles.emptyState}>
+            <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>
+              No tasks today. Tap to create your first task.
+            </Text>
+            <TouchableOpacity 
+              style={[styles.createTaskButton, { backgroundColor: colors.primary }]}
+              onPress={openTaskCreationMenu}
+            >
+              <Text style={[styles.createTaskButtonText, { color: colors.buttonText }]}>
+                Create Task +
+              </Text>
+            </TouchableOpacity>
           </View>
-        </View>
-        
-        {showFullSchedule && (
-          <View style={styles.scheduleList}>
-            {/* Example schedule, replace with real data */}
-            <View style={styles.scheduleRow}>
-              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>7:00 AM</Text>
-              <Text style={[styles.scheduleTask, { color: colors.text }]}>Morning meditation</Text>
-            </View>
-            <View style={styles.scheduleRow}>
-              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>8:00 AM</Text>
-              <Text style={[styles.scheduleTask, { color: colors.text }]}>Review project goals</Text>
-            </View>
-            <View style={styles.scheduleRow}>
-              <Text style={[styles.scheduleTime, { color: colors.textSecondary }]}>9:00 AM</Text>
-              <Text style={[styles.scheduleTask, { color: colors.text }]}>Team sync</Text>
-            </View>
+        ) : (
+          /* Task Cards (max 2) */
+          <View style={styles.taskList}>
+            {todaysTasks.slice(0, 2).map((task, index) => {
+              const isClosestToCurrentTime = index === 0; // First task is closest to current time
+              return (
+                <TouchableOpacity 
+                  key={task.id}
+                  style={[
+                    styles.taskCard,
+                    { 
+                      backgroundColor: isClosestToCurrentTime ? '#f0f9ff' : '#fafafa',
+                      borderColor: isClosestToCurrentTime ? '#3b82f6' : '#e5e7eb',
+                      borderWidth: isClosestToCurrentTime ? 2 : 1,
+                    }
+                  ]}
+                  onPress={() => openTaskDetail(task)}
+                >
+                  {/* Task Header with Type Icon and Dismiss Button */}
+                  <View style={styles.taskCardHeader}>
+                    <View style={styles.taskTypeContainer}>
+                      {getTaskIcon(task.type)}
+                      {task.tag && (
+                        <View style={[styles.taskTag, { backgroundColor: task.tagColor || '#e5e7eb' }]}>
+                          <Text style={[styles.taskTagText, { color: '#ffffff' }]}>
+                            {task.tag}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <TouchableOpacity 
+                      style={styles.dismissButton}
+                      onPress={() => removeTodaysTask(task.id)}
+                    >
+                      <Text style={[styles.dismissButtonText, { color: colors.textSecondary }]}>×</Text>
+                    </TouchableOpacity>
+                  </View>
+                  
+                  {/* Task Title */}
+                  <Text style={[styles.taskCardTitle, { color: colors.text }]} numberOfLines={2}>
+                    {task.title}
+                  </Text>
+                  
+                  {/* Task Time */}
+                  {task.dueTime && (
+                    <Text style={[styles.taskTime, { color: colors.textSecondary }]}>
+                      {task.dueTime}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              );
+            })}
+            
+            {/* Add Task Button (when tasks exist) */}
+            <TouchableOpacity 
+              style={[styles.addMoreTaskButton, { borderColor: colors.border }]}
+              onPress={openTaskCreationMenu}
+            >
+              <Text style={[styles.addMoreTaskText, { color: colors.textSecondary }]}>+ Add Task</Text>
+            </TouchableOpacity>
           </View>
         )}
-      </View>
+      </TouchableOpacity>
 
       {/* Spacer */}
       <View style={{ flex: 1 }} />
@@ -940,7 +1326,7 @@ export default function HomeScreen() {
 
           {/* Profile Icon Container */}
           <View style={styles.iconContainer}>
-            <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Profile')}>
+            <TouchableOpacity style={styles.centerIconBtn} onPress={handleProfilePress}>
               <ProfileIcon size={28} color={colors.icon} />
               <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
             </TouchableOpacity>
@@ -1383,5 +1769,156 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '500',
     textAlign: 'center',
+  },
+  
+  // Today's Focus styles
+  expandIndicator: {
+    alignItems: 'center',
+  },
+  expandText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  createTaskButton: {
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  createTaskButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  taskList: {
+    padding: 16,
+  },
+  taskCard: {
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  taskCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  taskTypeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  taskTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  taskTagText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dismissButton: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dismissButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  taskCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  taskTime: {
+    fontSize: 14,
+  },
+  addMoreTaskButton: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  addMoreTaskText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  
+  // Task Creation Modal styles
+  modalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 9999,
+  },
+  taskCreationModal: {
+    margin: 20,
+    borderRadius: 16,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    minWidth: 300,
+  },
+  taskCreationHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  taskCreationTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+  },
+  modalCloseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCloseText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  taskTypeOptions: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+  },
+  taskTypeButton: {
+    width: '48%',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  taskTypeText: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginTop: 8,
   },
 });

@@ -38,7 +38,7 @@ console.log('5. Test the authentication flow in your app\n');
 
 console.log('✅ Setup Complete!');
 console.log('Your Supabase project is now configured with:');
-console.log('- Custom users table with sensory mode');
+console.log('- User profiles table with sensory mode (references auth.users)');
 console.log('- User profiles table for additional data');
 console.log('- Row Level Security (RLS) policies');
 console.log('- Automatic user profile creation triggers'); 

@@ -263,6 +263,11 @@ export default function OnboardingScreen() {
   const completeOnboarding = async (selectedMode?: string) => {
     try {
       console.log('🔄 STARTING ONBOARDING COMPLETION...');
+      console.log('🔍 ONBOARDING COMPLETION DEBUG:', {
+        selectedModeParam: selectedMode,
+        onboardingDataMode: onboardingData.mode,
+        onboardingDataNickname: onboardingData.nickname
+      });
       
       // Save to AsyncStorage first
       await AsyncStorage.setItem('hasCompletedOnboarding', 'true');
@@ -281,8 +286,17 @@ export default function OnboardingScreen() {
         // Ensure we have a nickname - use the one from onboarding data or fallback
         const nicknameToSave = onboardingData.nickname || 'there';
         
-        // Use the selected mode if provided, otherwise fall back to onboardingData.mode
-        const modeToSave = selectedMode || onboardingData.mode;
+        // FIXED: Prioritize selectedMode parameter over onboardingData.mode
+        // If selectedMode is provided, use it; otherwise use onboardingData.mode; fallback to 'normal'
+        const modeToSave = selectedMode || onboardingData.mode || 'normal';
+        
+        console.log('🔍 MODE RESOLUTION DEBUG:', {
+          'step1_selectedModeParam': selectedMode,
+          'step2_onboardingDataMode': onboardingData.mode,
+          'step3_finalModeToSave': modeToSave,
+          'is_selectedMode_truthy': !!selectedMode,
+          'is_onboardingDataMode_truthy': !!onboardingData.mode
+        });
         
         console.log('Saving onboarding data:', {
           userId,

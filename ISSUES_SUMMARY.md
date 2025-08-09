@@ -30,7 +30,7 @@ The app has persistent database and data flow issues that prevent proper nicknam
 
 ### 4. Foreign Key Constraint Errors
 
-**Error**: `23503` - "Key (user_id)=... is not present in table 'users'"
+**Error**: `23503` - "Key (user_id)=... is not present in table 'auth.users'"
 **Impact**: Database operations fail due to missing user records
 **Evidence**: Previous error logs showed foreign key violations
 
@@ -44,7 +44,7 @@ The app has persistent database and data flow issues that prevent proper nicknam
 
 ### Database Schema Issues
 
-- `user_profiles` table references `auth.users` but user creation/update flow is broken
+- `user_profiles` table correctly references `auth.users` directly
 - Email field is NOT NULL but not being provided during profile creation
 - Foreign key constraints failing due to missing user records
 

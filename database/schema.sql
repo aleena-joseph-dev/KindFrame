@@ -1,52 +1,30 @@
 -- Enable Row Level Security
 ALTER TABLE auth.users ENABLE ROW LEVEL SECURITY;
 
--- Create custom users table
-CREATE TABLE IF NOT EXISTS public.users (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  email TEXT NOT NULL UNIQUE,
+-- Create user_profiles table for extended user data
+-- This table references auth.users directly (no intermediate public.users table needed)
+CREATE TABLE IF NOT EXISTS public.user_profiles (
+  user_id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  email TEXT NOT NULL,
   full_name TEXT,
   avatar_url TEXT,
   sensory_mode TEXT CHECK (sensory_mode IN ('low', 'medium', 'high')) DEFAULT 'low',
-  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
-);
-
--- Create user_profiles table for additional user data
-CREATE TABLE IF NOT EXISTS public.user_profiles (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  user_id UUID REFERENCES public.users(id) ON DELETE CASCADE,
   preferences JSONB DEFAULT '{}',
   settings JSONB DEFAULT '{}',
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  quick_jot BOOLEAN DEFAULT false
 );
 
--- Enable RLS on custom tables
-ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
+-- Enable RLS on user_profiles table
 ALTER TABLE public.user_profiles ENABLE ROW LEVEL SECURITY;
 
 -- Create indexes for better performance
-CREATE INDEX IF NOT EXISTS idx_users_email ON public.users(email);
 CREATE INDEX IF NOT EXISTS idx_user_profiles_user_id ON public.user_profiles(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_email ON public.user_profiles(email);
 
--- RLS Policies for users table
-
--- Users can read their own profile
-CREATE POLICY "Users can view own profile" ON public.users
-  FOR SELECT USING (auth.uid() = id);
-
--- Users can update their own profile
-CREATE POLICY "Users can update own profile" ON public.users
-  FOR UPDATE USING (auth.uid() = id);
-
--- Users can insert their own profile (during signup)
-CREATE POLICY "Users can insert own profile" ON public.users
-  FOR INSERT WITH CHECK (auth.uid() = id);
-
--- Users cannot delete their own profile (handled by auth.users cascade)
-CREATE POLICY "Users cannot delete own profile" ON public.users
-  FOR DELETE USING (false);
+-- Add unique constraint on user_id (already primary key, but explicit for clarity)
+ALTER TABLE public.user_profiles ADD CONSTRAINT IF NOT EXISTS user_profiles_user_id_unique UNIQUE (user_id);
 
 -- RLS Policies for user_profiles table
 
@@ -62,7 +40,7 @@ CREATE POLICY "Users can update own profile data" ON public.user_profiles
 CREATE POLICY "Users can insert own profile data" ON public.user_profiles
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
--- Users cannot delete their own profile data
+-- Users cannot delete their own profile data (handled by auth.users cascade)
 CREATE POLICY "Users cannot delete own profile data" ON public.user_profiles
   FOR DELETE USING (false);
 
@@ -70,18 +48,13 @@ CREATE POLICY "Users cannot delete own profile data" ON public.user_profiles
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
-  INSERT INTO public.users (id, email, full_name, avatar_url, sensory_mode)
+  INSERT INTO public.user_profiles (user_id, email, full_name, avatar_url, sensory_mode, preferences, settings)
   VALUES (
     NEW.id,
     NEW.email,
     NEW.raw_user_meta_data->>'full_name',
     NEW.raw_user_meta_data->>'avatar_url',
-    'low'
-  );
-  
-  INSERT INTO public.user_profiles (user_id, preferences, settings)
-  VALUES (
-    NEW.id,
+    'low',
     '{}',
     '{}'
   );
@@ -105,17 +78,20 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- Triggers to automatically update updated_at
-CREATE TRIGGER update_users_updated_at
-  BEFORE UPDATE ON public.users
-  FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
-
+-- Trigger to automatically update updated_at
 CREATE TRIGGER update_user_profiles_updated_at
   BEFORE UPDATE ON public.user_profiles
   FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
 
 -- Grant necessary permissions
 GRANT USAGE ON SCHEMA public TO anon, authenticated;
-GRANT ALL ON public.users TO anon, authenticated;
 GRANT ALL ON public.user_profiles TO anon, authenticated;
-GRANT USAGE ON SEQUENCE public.user_profiles_id_seq TO anon, authenticated; 
+
+-- Comments for documentation
+COMMENT ON TABLE public.user_profiles IS 'Extended user profile data that references auth.users directly';
+COMMENT ON COLUMN public.user_profiles.user_id IS 'Primary key and foreign key to auth.users(id)';
+COMMENT ON COLUMN public.user_profiles.email IS 'User email (copied from auth.users for convenience)';
+COMMENT ON COLUMN public.user_profiles.sensory_mode IS 'User sensory preference: low, medium, or high';
+COMMENT ON COLUMN public.user_profiles.preferences IS 'JSONB field for user preferences';
+COMMENT ON COLUMN public.user_profiles.settings IS 'JSONB field for app settings including nickname, mode, etc.';
+COMMENT ON COLUMN public.user_profiles.quick_jot IS 'Boolean flag for quick jot feature';

@@ -6,7 +6,7 @@
 
 - [x] **Extract name from email** on login
 - [x] **Show in onboarding popup** as editable name field
-- [x] **Store as nickname** in users table on continue/skip
+- [x] **Store as nickname** in user_profiles table on continue/skip
 - [x] **Reference as username** throughout the app
 
 ### **Task 2: User Visit Type Detection** ✅ **COMPLETED**
