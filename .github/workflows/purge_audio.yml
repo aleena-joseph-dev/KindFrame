@@ -2,7 +2,7 @@ name: Purge Old Audio
 
 on:
   schedule:
-    - cron: "0 * * * *" # every hour (UTC)
+    - cron: "0 3 * * *" # every day at 03:00 UTC
   workflow_dispatch: # allows manual trigger from GitHub UI
 
 jobs:
@@ -12,7 +12,6 @@ jobs:
       - name: Call purge_temp_audio
         run: |
           echo "Starting purge_temp_audio call..."
-          echo "Posting to Supabase function at: https://dlenuyofztbvhzmdfiek.functions.supabase.co/purge_temp_audio"
           curl -i -X POST \
             -H "x-cron-key: ${{ secrets.CRON_KEY }}" \
             https://dlenuyofztbvhzmdfiek.functions.supabase.co/purge_temp_audio || {
