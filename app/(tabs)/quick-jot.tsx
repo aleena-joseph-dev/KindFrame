@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AudioIcon from '@/components/ui/AudioIcon';
@@ -48,6 +49,39 @@ export default function QuickJotScreen() {
   const [aiSubtasks, setAiSubtasks] = useState<string[]>([]);
   const [isAILoading, setIsAILoading] = useState(false);
   const [detailLevel, setDetailLevel] = useState<'few' | 'many'>('few');
+  
+  // Enhanced audio/speech-to-text state
+  const [recording, setRecording] = useState<Audio.Recording | null>(null);
+  const [transcriptionText, setTranscriptionText] = useState('');
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [permissionResponse, requestPermission] = Audio.usePermissions();
+  
+  // Animation values for recording indicator
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Initialize audio session
+  useEffect(() => {
+    const initializeAudio = async () => {
+      try {
+        console.log('🎤 AUDIO: Initializing audio session...');
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+          staysActiveInBackground: false,
+        });
+        console.log('✅ AUDIO: Audio session initialized');
+      } catch (error) {
+        console.error('❌ AUDIO: Failed to initialize audio session:', error);
+      }
+    };
+
+    initializeAudio();
+  }, []);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -89,10 +123,186 @@ export default function QuickJotScreen() {
     };
   }, []);
 
-  const handleVoiceInput = () => {
-    // Mock voice recording functionality
-    const mockTranscription = "This is a mock transcription of voice input. You can edit this text as needed.";
-    setThoughts(mockTranscription);
+  // Enhanced voice input with real speech-to-text
+  const startRecording = async () => {
+    try {
+      console.log('🎤 AUDIO: Checking permissions...');
+      console.log('🎤 AUDIO: Current permission status:', permissionResponse?.status);
+      
+      if (permissionResponse?.status !== 'granted') {
+        console.log('🎤 AUDIO: Requesting microphone permission...');
+        const permission = await requestPermission();
+        console.log('🎤 AUDIO: Permission response:', permission);
+        
+        if (permission.status !== 'granted') {
+          Alert.alert(
+            'Microphone Permission Required', 
+            'Please enable microphone access in your device settings to use voice recording.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => console.log('Open settings') }
+            ]
+          );
+          return;
+        }
+      }
+
+      console.log('🎤 AUDIO: Setting audio mode...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        shouldDuckAndroid: true,
+        playThroughEarpieceAndroid: false,
+        staysActiveInBackground: false,
+      });
+
+      console.log('🎤 AUDIO: Creating recording...');
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+      
+      setRecording(recording);
+      setIsRecording(true);
+      setRecordingDuration(0);
+      setTranscriptionText('');
+
+      // Start recording animation
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.3,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 1000,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+
+      // Start recording timer
+      recordingTimer.current = setInterval(() => {
+        setRecordingDuration(prev => prev + 1);
+      }, 1000);
+
+      console.log('✅ AUDIO: Recording started successfully');
+      
+    } catch (err) {
+      console.error('❌ AUDIO: Failed to start recording:', err);
+      setIsRecording(false);
+      
+      if (recordingTimer.current) {
+        clearInterval(recordingTimer.current);
+        recordingTimer.current = null;
+      }
+      
+      // Reset animation
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+      
+      Alert.alert(
+        'Recording Error', 
+        `Failed to start recording: ${err instanceof Error ? err.message : 'Unknown error'}. Please check microphone permissions and try again.`
+      );
+    }
+  };
+
+  const stopRecording = async () => {
+    console.log('🎤 AUDIO: Stopping recording...');
+    setIsRecording(false);
+    
+    if (recordingTimer.current) {
+      clearInterval(recordingTimer.current);
+      recordingTimer.current = null;
+    }
+
+    // Stop animation
+    pulseAnim.stopAnimation();
+    pulseAnim.setValue(1);
+
+    if (!recording) {
+      console.log('❌ AUDIO: No recording to stop');
+      return;
+    }
+
+    try {
+      console.log('🎤 AUDIO: Stopping and unloading recording...');
+      await recording.stopAndUnloadAsync();
+      
+      console.log('🎤 AUDIO: Resetting audio mode...');
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+      });
+
+      const uri = recording.getURI();
+      console.log('✅ AUDIO: Recording stopped and stored at:', uri);
+      
+      setRecording(null);
+      
+      if (uri) {
+        setIsTranscribing(true);
+        console.log('🎤 AUDIO: Starting speech-to-text conversion...');
+        
+        // Process audio transcription
+        await processAudioTranscription(uri);
+      } else {
+        console.log('❌ AUDIO: No audio URI found, skipping transcription');
+        Alert.alert('Recording Error', 'No audio was recorded. Please try again.');
+      }
+      
+    } catch (error) {
+      console.error('❌ AUDIO: Error stopping recording:', error);
+      Alert.alert('Error', `Failed to stop recording: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      setIsTranscribing(false);
+      setRecording(null);
+    }
+  };
+
+  const processAudioTranscription = async (audioUri: string | null) => {
+    try {
+      // TODO: Implement real transcription service
+      // Will be replaced with transcriptionService.ts
+      console.log('🎤 AUDIO: Processing transcription for:', audioUri);
+      
+      // Temporary placeholder - will be replaced
+      setTranscriptionText('Transcription service will be implemented');
+      setShowTranscriptionModal(true);
+      
+    } catch (error) {
+      console.error('Speech-to-text error:', error);
+      Alert.alert('Transcription Error', 'Failed to convert speech to text. Please try again.');
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+
+
+  const handleVoiceInput = async () => {
+    if (isRecording) {
+      await stopRecording();
+    } else {
+      await startRecording();
+    }
+  };
+
+  const acceptTranscription = () => {
+    setThoughts(prev => prev + (prev ? ' ' : '') + transcriptionText);
+    setShowTranscriptionModal(false);
+    setTranscriptionText('');
+  };
+
+  const editTranscription = () => {
+    setShowTranscriptionModal(false);
+    setThoughts(prev => prev + (prev ? ' ' : '') + transcriptionText);
+    // Focus will be automatically set to the text input
+  };
+
+  const discardTranscription = () => {
+    setShowTranscriptionModal(false);
+    setTranscriptionText('');
   };
 
   const handleSave = () => {
@@ -334,10 +544,27 @@ export default function QuickJotScreen() {
       setShowSaveOptions(false);
       
       console.log(`✅ Quick jot saved as ${getTypeDisplayName(type)}`);
-      router.back();
+      
+      // Navigate directly to the appropriate feature screen
+      navigateToFeatureScreen(type);
     } catch (error) {
       console.error('Error saving quick jot:', error);
     }
+  };
+
+  const navigateToFeatureScreen = (type: QuickJotEntry['type']) => {
+    const routes = {
+      'task': '/(tabs)/todo',
+      'todo': '/(tabs)/todo', 
+      'note': '/(tabs)/notes',
+      'journal': '/(tabs)/notes', // Journal entries go to notes
+      'memory': '/(tabs)/core-memory',
+      'dump': '/(tabs)/notes' // Default to notes
+    };
+
+    const targetRoute = routes[type] || '/(tabs)/notes';
+    console.log(`🎯 QUICK-JOT: Navigating to ${targetRoute} after saving ${type}`);
+    router.push(targetRoute as any);
   };
 
   const getTypeDisplayName = (type: QuickJotEntry['type']) => {
@@ -376,23 +603,72 @@ export default function QuickJotScreen() {
 
       {/* Main Content */}
       <View style={styles.content}>
-        <TextInput
-          style={[
-            styles.thoughtsInput,
-            {
-              backgroundColor: colors.surface,
-              color: colors.text,
-              borderColor: colors.border,
-            },
-          ]}
-          placeholder="Write your thoughts here..."
-          placeholderTextColor={colors.textSecondary}
-          value={thoughts}
-          onChangeText={setThoughts}
-          multiline
-          textAlignVertical="top"
-          autoFocus
-        />
+        <View style={[styles.inputContainer, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <TextInput
+            style={[
+              styles.thoughtsInput,
+              {
+                color: colors.text,
+                flex: 1,
+              },
+            ]}
+            placeholder="Write your thoughts here or tap the microphone to speak..."
+            placeholderTextColor={colors.textSecondary}
+            value={thoughts}
+            onChangeText={setThoughts}
+            multiline
+            textAlignVertical="top"
+            autoFocus
+          />
+          
+          {/* Microphone Icon next to input */}
+          <TouchableOpacity
+            style={[
+              styles.microphoneButton,
+              {
+                backgroundColor: isRecording ? '#ef4444' : colors.primary,
+              }
+            ]}
+            onPress={handleVoiceInput}
+            disabled={isTranscribing}
+          >
+            <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+              <AudioIcon 
+                size={20} 
+                color={isRecording ? '#ffffff' : colors.buttonText} 
+              />
+            </Animated.View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Recording Status */}
+        {isRecording && (
+          <View style={[styles.recordingStatus, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={styles.recordingIndicator}>
+              <View style={[styles.recordingDot, { backgroundColor: '#ef4444' }]} />
+              <Text style={[styles.recordingText, { color: colors.text }]}>
+                Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
+              </Text>
+            </View>
+            <Text style={[styles.recordingHint, { color: colors.textSecondary }]}>
+              Tap microphone again to stop
+            </Text>
+          </View>
+        )}
+
+        {/* Transcribing Status */}
+        {isTranscribing && (
+          <View style={[styles.transcribingStatus, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Text style={[styles.transcribingText, { color: colors.text }]}>
+              Converting speech to text...
+            </Text>
+            <View style={styles.transcribingDots}>
+              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Bottom Bar */}
@@ -511,6 +787,72 @@ export default function QuickJotScreen() {
               </Text>
             </TouchableOpacity>
           </View>
+        </View>
+      </PopupBg>
+
+      {/* Speech-to-Text Transcription Modal */}
+      <PopupBg
+        visible={showTranscriptionModal}
+        onRequestClose={() => setShowTranscriptionModal(false)}
+        size="large"
+        color={colors.surface}
+        showSkip={false}
+        closeOnOutsideTap={false}
+      >
+        <View style={[styles.popupContent, { width: '100%' }]}>
+          {/* Title Section */}
+          <View style={styles.popupTitleSection}>
+            <Text style={[styles.modalTitle, { 
+              color: colors.text,
+              fontSize: getResponsiveSize(18, 20, 24)
+            }]}>
+              Speech Transcription
+            </Text>
+          </View>
+
+          {/* Transcription Text */}
+          <View style={[styles.transcriptionContainer, { backgroundColor: colors.background, borderColor: colors.border }]}>
+            <Text style={[styles.transcriptionLabel, { color: colors.textSecondary }]}>
+              Transcribed Text:
+            </Text>
+            <Text style={[styles.transcriptionText, { color: colors.text }]}>
+              {transcriptionText}
+            </Text>
+          </View>
+
+          {/* Action Buttons */}
+          <View style={styles.transcriptionActions}>
+            <TouchableOpacity
+              style={[styles.transcriptionButton, styles.discardButton, { borderColor: '#ef4444' }]}
+              onPress={discardTranscription}
+            >
+              <Text style={[styles.transcriptionButtonText, { color: '#ef4444' }]}>
+                Discard
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.transcriptionButton, styles.editButton, { borderColor: colors.primary }]}
+              onPress={editTranscription}
+            >
+              <Text style={[styles.transcriptionButtonText, { color: colors.primary }]}>
+                Edit
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.transcriptionButton, styles.acceptButton, { backgroundColor: colors.primary }]}
+              onPress={acceptTranscription}
+            >
+              <Text style={[styles.transcriptionButtonText, { color: colors.buttonText }]}>
+                Accept
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={[styles.transcriptionHint, { color: colors.textSecondary }]}>
+            Accept to add to your text, Edit to modify before adding, or Discard to remove.
+          </Text>
         </View>
       </PopupBg>
 
@@ -668,5 +1010,117 @@ const styles = StyleSheet.create({
   cancelButtonSection: {
     width: '100%',
     marginTop: 4,
+  },
+  
+  // New styles for enhanced audio input
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  microphoneButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  recordingStatus: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  recordingIndicator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  recordingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  recordingText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  recordingHint: {
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  transcribingStatus: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  transcribingText: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  transcribingDots: {
+    flexDirection: 'row',
+    gap: 4,
+  },
+  transcribingDot: {
+    fontSize: 18,
+    opacity: 0.7,
+  },
+  
+  // Transcription modal styles
+  transcriptionContainer: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginBottom: 20,
+  },
+  transcriptionLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  transcriptionText: {
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  transcriptionActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  transcriptionButton: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+  },
+  discardButton: {
+    backgroundColor: 'transparent',
+  },
+  editButton: {
+    backgroundColor: 'transparent',
+  },
+  acceptButton: {
+    borderWidth: 0,
+  },
+  transcriptionButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  transcriptionHint: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 }); 

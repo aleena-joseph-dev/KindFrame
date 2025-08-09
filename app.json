@@ -17,14 +17,20 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.kindframe.app"
+      "bundleIdentifier": "com.kindframe.app",
+      "infoPlist": {
+        "NSMicrophoneUsageDescription": "This app uses the microphone to record voice notes and convert speech to text in Quick Jot feature for better accessibility and convenience."
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#e0e5de"
       },
-      "package": "com.kindframe.app"
+      "package": "com.kindframe.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -36,7 +42,13 @@
     },
     "plugins": [
       "expo-router",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow KindFrame to access your microphone to record voice notes and convert speech to text."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
