@@ -1,0 +1,16 @@
+name: Purge Old Audio
+
+on:
+  schedule:
+    - cron: "0 * * * *" # every hour (UTC)
+  workflow_dispatch: # allows manual trigger from GitHub UI
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call purge_temp_audio
+        run: |
+          curl -X POST \
+            -H "x-cron-key: ${{ secrets.CRON_KEY }}" \
+            https://dlenuyofztbvhzmdfiek.supabase.co/functions/v1/purge_temp_audio
