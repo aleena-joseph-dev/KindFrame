@@ -11,6 +11,12 @@ jobs:
     steps:
       - name: Call purge_temp_audio
         run: |
-          curl -X POST \
+          echo "Starting purge_temp_audio call..."
+          echo "Posting to Supabase function at: https://dlenuyofztbvhzmdfiek.functions.supabase.co/purge_temp_audio"
+          curl -i -X POST \
             -H "x-cron-key: ${{ secrets.CRON_KEY }}" \
-            https://dlenuyofztbvhzmdfiek.supabase.co/functions/v1/purge_temp_audio
+            https://dlenuyofztbvhzmdfiek.functions.supabase.co/purge_temp_audio || {
+              echo "❌ Request failed."
+              exit 1
+            }
+          echo "✅ purge_temp_audio request complete."
