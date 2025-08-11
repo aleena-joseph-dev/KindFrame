@@ -1,6 +1,18 @@
-# Welcome to your Expo app 👋
+# KindFrame - ND-First Productivity App 🌱
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+This is an [Expo](https://expo.dev) project with audio-to-text pipeline and deterministic NLP.
+
+## 🕒 Audio Pipeline Purge Schedule
+
+For automated audio cleanup, add this to your GitHub Actions workflow or cron job:
+
+```bash
+# Purge audio files older than 4 hours (runs every 2 hours)
+curl -X POST https://your-project-ref.supabase.co/functions/v1/purge_temp_audio \
+  -H "x-cron-key: $CRON_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"retain_hours": 4}'
+```
 
 ## Get started
 

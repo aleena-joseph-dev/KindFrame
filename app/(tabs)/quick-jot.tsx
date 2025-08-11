@@ -2,7 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AudioIcon from '@/components/ui/AudioIcon';
@@ -19,6 +19,7 @@ import { useViewport } from '@/hooks/useViewport';
 import { AIService } from '@/services/aiService';
 import { DataService } from '@/services/dataService';
 import { QuickJotService } from '@/services/quickJotService';
+import { TranscriptionService, type UploadProgress } from '@/services/transcriptionService';
 
 interface QuickJotEntry {
   id: string;
@@ -57,26 +58,64 @@ export default function QuickJotScreen() {
   const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [permissionResponse, requestPermission] = Audio.usePermissions();
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
+  const [extractedTasks, setExtractedTasks] = useState<any[]>([]);
+  
+  // Web Speech API state
+  const [webSpeechAPI, setWebSpeechAPI] = useState<any>(null);
+  const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
   
   // Animation values for recording indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initialize audio session
+  // Initialize audio session and Web Speech API
   useEffect(() => {
     const initializeAudio = async () => {
-      try {
-        console.log('🎤 AUDIO: Initializing audio session...');
-        await Audio.setAudioModeAsync({
-          allowsRecordingIOS: false,
-          playsInSilentModeIOS: true,
-          shouldDuckAndroid: true,
-          playThroughEarpieceAndroid: false,
-          staysActiveInBackground: false,
-        });
-        console.log('✅ AUDIO: Audio session initialized');
-      } catch (error) {
-        console.error('❌ AUDIO: Failed to initialize audio session:', error);
+      if (Platform.OS === 'web') {
+        // Initialize Web Speech API for web
+        console.log('🎤 AUDIO: Initializing Web Speech API...');
+        const api = TranscriptionService.initializeWebSpeechAPI(
+          (text, isFinal) => {
+            if (isFinal && text.trim()) {
+              console.log('🎤 WEB SPEECH: Final result:', text);
+              setTranscriptionText(text);
+              setShowTranscriptionModal(true);
+            } else if (text.trim()) {
+              console.log('🎤 WEB SPEECH: Interim result:', text);
+              // Optionally show interim results in UI
+            }
+          },
+          (error) => {
+            console.error('🎤 WEB SPEECH: Error:', error);
+            Alert.alert('Speech Recognition Error', error);
+            setIsRecording(false);
+          }
+        );
+        
+        setWebSpeechAPI(api);
+        setIsWebSpeechSupported(api.isSupported);
+        
+        if (api.isSupported) {
+          console.log('✅ AUDIO: Web Speech API initialized');
+        } else {
+          console.log('⚠️ AUDIO: Web Speech API not supported, falling back to file recording');
+        }
+      } else {
+        // Initialize Expo Audio for native platforms
+        try {
+          console.log('🎤 AUDIO: Initializing audio session...');
+          await Audio.setAudioModeAsync({
+            allowsRecordingIOS: false,
+            playsInSilentModeIOS: true,
+            shouldDuckAndroid: true,
+            playThroughEarpieceAndroid: false,
+            staysActiveInBackground: false,
+          });
+          console.log('✅ AUDIO: Audio session initialized');
+        } catch (error) {
+          console.error('❌ AUDIO: Failed to initialize audio session:', error);
+        }
       }
     };
 
@@ -261,20 +300,46 @@ export default function QuickJotScreen() {
   };
 
   const processAudioTranscription = async (audioUri: string | null) => {
+    if (!audioUri) {
+      console.log('❌ AUDIO: No audio URI provided');
+      setIsTranscribing(false);
+      return;
+    }
+
     try {
-      // TODO: Implement real transcription service
-      // Will be replaced with transcriptionService.ts
       console.log('🎤 AUDIO: Processing transcription for:', audioUri);
+      setUploadProgress({ progress: 0, stage: 'uploading', message: 'Starting...' });
       
-      // Temporary placeholder - will be replaced
-      setTranscriptionText('Transcription service will be implemented');
-      setShowTranscriptionModal(true);
+      const result = await TranscriptionService.processAudioFile(
+        audioUri,
+        (progress) => setUploadProgress(progress)
+      );
+
+      if (result.success && result.cleanedText) {
+        console.log('✅ AUDIO: Transcription successful');
+        setTranscriptionText(result.cleanedText);
+        
+        // Store extracted tasks if any
+        if (result.tasks && result.tasks.length > 0) {
+          setExtractedTasks(result.tasks);
+          console.log('🎯 AUDIO: Found', result.tasks.length, 'tasks in transcription');
+        }
+        
+        setShowTranscriptionModal(true);
+      } else {
+        console.error('❌ AUDIO: Transcription failed:', result.error);
+        Alert.alert(
+          'Transcription Error', 
+          result.error || 'Failed to convert speech to text. Please try again.'
+        );
+      }
       
     } catch (error) {
-      console.error('Speech-to-text error:', error);
+      console.error('❌ AUDIO: Speech-to-text error:', error);
       Alert.alert('Transcription Error', 'Failed to convert speech to text. Please try again.');
     } finally {
       setIsTranscribing(false);
+      setUploadProgress(null);
     }
   };
 
@@ -282,9 +347,74 @@ export default function QuickJotScreen() {
 
   const handleVoiceInput = async () => {
     if (isRecording) {
-      await stopRecording();
+      if (Platform.OS === 'web' && webSpeechAPI && isWebSpeechSupported) {
+        // Stop Web Speech API
+        console.log('🎤 WEB SPEECH: Stopping...');
+        webSpeechAPI.stop();
+        setIsRecording(false);
+        
+        // Stop animation
+        pulseAnim.stopAnimation();
+        pulseAnim.setValue(1);
+        
+        if (recordingTimer.current) {
+          clearInterval(recordingTimer.current);
+          recordingTimer.current = null;
+        }
+        
+        // Process the text if we have any
+        if (transcriptionText.trim()) {
+          setIsTranscribing(true);
+          const result = await TranscriptionService.processText(transcriptionText);
+          
+          if (result.success && result.tasks && result.tasks.length > 0) {
+            setExtractedTasks(result.tasks);
+            console.log('🎯 WEB SPEECH: Found', result.tasks.length, 'tasks in text');
+          }
+          
+          setIsTranscribing(false);
+        }
+      } else {
+        await stopRecording();
+      }
     } else {
-      await startRecording();
+      if (Platform.OS === 'web' && webSpeechAPI && isWebSpeechSupported) {
+        // Start Web Speech API
+        console.log('🎤 WEB SPEECH: Starting...');
+        try {
+          webSpeechAPI.start();
+          setIsRecording(true);
+          setRecordingDuration(0);
+          setTranscriptionText('');
+          
+          // Start recording animation
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(pulseAnim, {
+                toValue: 1.3,
+                duration: 1000,
+                useNativeDriver: true,
+              }),
+              Animated.timing(pulseAnim, {
+                toValue: 1,
+                duration: 1000,
+                useNativeDriver: true,
+              }),
+            ])
+          ).start();
+
+          // Start recording timer
+          recordingTimer.current = setInterval(() => {
+            setRecordingDuration(prev => prev + 1);
+          }, 1000);
+          
+        } catch (error) {
+          console.error('🎤 WEB SPEECH: Failed to start:', error);
+          Alert.alert('Speech Recognition Error', 'Failed to start speech recognition');
+        }
+      } else {
+        await startRecording();
+      }
     }
   };
 
@@ -659,14 +789,38 @@ export default function QuickJotScreen() {
         {/* Transcribing Status */}
         {isTranscribing && (
           <View style={[styles.transcribingStatus, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.transcribingText, { color: colors.text }]}>
-              Converting speech to text...
-            </Text>
-            <View style={styles.transcribingDots}>
-              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
-              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
-              <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
-            </View>
+            {uploadProgress ? (
+              <>
+                <Text style={[styles.transcribingText, { color: colors.text }]}>
+                  {uploadProgress.message}
+                </Text>
+                <View style={[styles.progressBarContainer, { backgroundColor: colors.background }]}>
+                  <View 
+                    style={[
+                      styles.progressBar, 
+                      { 
+                        backgroundColor: colors.primary,
+                        width: `${uploadProgress.progress}%`
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={[styles.progressText, { color: colors.textSecondary }]}>
+                  {uploadProgress.progress}% • {uploadProgress.stage}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Text style={[styles.transcribingText, { color: colors.text }]}>
+                  Converting speech to text...
+                </Text>
+                <View style={styles.transcribingDots}>
+                  <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+                  <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+                  <Text style={[styles.transcribingDot, { color: colors.primary }]}>●</Text>
+                </View>
+              </>
+            )}
           </View>
         )}
       </View>
@@ -1073,6 +1227,23 @@ const styles = StyleSheet.create({
   transcribingDot: {
     fontSize: 18,
     opacity: 0.7,
+  },
+  progressBarContainer: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    marginVertical: 8,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 3,
+    transition: 'width 0.3s ease',
+  },
+  progressText: {
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 4,
   },
   
   // Transcription modal styles
