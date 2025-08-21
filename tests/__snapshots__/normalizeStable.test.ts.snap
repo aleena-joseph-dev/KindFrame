@@ -1,0 +1,20 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`normalizeStable Comparison Utilities should enable easy testing with normalized results 1`] = `
+{
+  "confidence": Any<Number>,
+  "forced_rules_applied": [
+    "event_keyword→Event",
+    "todo_keyword→To-do",
+  ],
+  "items": ArrayContaining [
+    ObjectContaining {
+      "subtasks": Any<Array>,
+      "title": Any<String>,
+      "type": "To-do",
+    },
+  ],
+  "suggested_overall_category": "To-do",
+  "warnings": [],
+}
+`;

@@ -1,7 +1,7 @@
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
-  roots: ['<rootDir>/tests', '<rootDir>/services'],
+  roots: ['<rootDir>/tests', '<rootDir>/services', '<rootDir>/lib'],
   testMatch: ['**/*.test.ts'],
   transform: {
     '^.+\\.(ts|tsx)$': 'ts-jest',
@@ -25,10 +25,22 @@ module.exports = {
       tsconfig: {
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
+        strict: true,
+        target: 'es2020',
+        module: 'commonjs',
+        moduleResolution: 'node',
+        jsx: 'react-jsx',
+        skipLibCheck: true,
+        forceConsistentCasingInFileNames: true,
+        resolveJsonModule: true,
+        isolatedModules: true,
+        noEmit: true,
       }
     }
   },
   transformIgnorePatterns: [
     'node_modules/(?!(zod)/)'
-  ]
+  ],
+  testTimeout: 10000,
+  verbose: true
 };

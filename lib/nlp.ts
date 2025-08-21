@@ -38,7 +38,7 @@ export interface NLPError {
 
 /**
  * Process text with deterministic NLP
- * Calls the /process_text Edge Function
+ * Calls the /process_text_func Edge Function
  */
 export async function processText(
   text: string, 
@@ -62,22 +62,25 @@ export async function processText(
       throw new Error('Please sign in to use text processing services');
     }
 
-    // Call process_text Edge Function
+    // Call process_text_func Edge Function
     const functionsUrl = process.env.EXPO_PUBLIC_SUPABASE_FUNCTIONS_URL;
     if (!functionsUrl) {
       throw new Error('Text processing service not configured');
     }
 
-    const response = await fetch(`${functionsUrl}/process_text`, {
+    const response = await fetch(`${functionsUrl}/process_text_func`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${session.access_token}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        text: text.trim(),
-        platform,
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        input: text.trim(),
+        options: {
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+          userId: session.user?.id || 'anonymous',
+          maxItems: 15
+        }
       }),
     });
 

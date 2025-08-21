@@ -34,7 +34,8 @@ export interface TranscriptionProvider {
 export interface NLPProvider {
   process(
     text: string,
-    platform: 'web' | 'electron' | 'android' | 'ios'
+    platform: 'web' | 'electron' | 'android' | 'ios',
+    timezone?: string
   ): Promise<NLPResult>;
 }
 

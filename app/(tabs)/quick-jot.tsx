@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Audio } from 'expo-av';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Animated, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -10,12 +10,14 @@ import BreakDownIcon from '@/components/ui/BreakDownIcon';
 import { OptionsCard } from '@/components/ui/OptionsCard';
 import { PopupBg } from '@/components/ui/PopupBg';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import { VUMeter } from '@/components/ui/VUMeter';
 
 import { TopBar } from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { useWebSpeech } from '@/lib/useWebSpeech';
 import { AIService } from '@/services/aiService';
 import { DataService } from '@/services/dataService';
 import { QuickJotService } from '@/services/quickJotService';
@@ -61,47 +63,84 @@ export default function QuickJotScreen() {
   const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [extractedTasks, setExtractedTasks] = useState<any[]>([]);
   
-  // Web Speech API state
-  const [webSpeechAPI, setWebSpeechAPI] = useState<any>(null);
-  const [isWebSpeechSupported, setIsWebSpeechSupported] = useState(false);
+  // Enhanced Web Speech API using custom hook
+  const [hasUserStoppedRecording, setHasUserStoppedRecording] = useState(false);
+  const userStoppedRecordingRef = useRef(false);
+  
+  // Memoized callbacks to prevent infinite re-renders
+  const onInterim = useCallback((text: string) => {
+    console.log('🎤 WEB SPEECH: Interim result:', text);
+    // Optionally show interim results in UI
+  }, []);
+
+  const onFinal = useCallback(async (text: string) => {
+    console.log('🎤 WEB SPEECH: Final result:', text);
+    setTranscriptionText(text);
+    
+    // Only show modal if user has intentionally stopped recording OR if we're not currently recording
+    const shouldShowModal = userStoppedRecordingRef.current || !isRecording;
+    console.log('🔍 DEBUG: userStoppedRecordingRef.current:', userStoppedRecordingRef.current);
+    console.log('🔍 DEBUG: isRecording:', isRecording);
+    console.log('🔍 DEBUG: shouldShowModal:', shouldShowModal);
+    
+    if (shouldShowModal) {
+      console.log('🎤 WEB SPEECH: User stopped recording, showing transcription modal');
+      
+      // Process the text with our Edge Function
+      if (text && text.trim()) {
+        console.log('✅ DEBUG: Final text exists, calling TranscriptionService.processTextWithFallback');
+        console.log('🔍 DEBUG: Final text:', text);
+        console.log('🔍 DEBUG: Final text length:', text.length);
+        
+        setIsTranscribing(true);
+        try {
+          const result = await TranscriptionService.processTextWithFallback(text.trim(), 'web');
+          console.log('🎯 DEBUG: TranscriptionService.processTextWithFallback result:', result);
+          
+          if (result.success && result.tasks && result.tasks.length > 0) {
+            setExtractedTasks(result.tasks);
+            console.log('🎯 ENHANCED WEB SPEECH: Found', result.tasks.length, 'tasks in text');
+          } else {
+            console.log('⚠️ DEBUG: No tasks extracted from text');
+          }
+        } catch (error) {
+          console.error('❌ DEBUG: Error calling TranscriptionService.processTextWithFallback:', error);
+        }
+        setIsTranscribing(false);
+      } else {
+        console.log('⚠️ DEBUG: No final text to process');
+      }
+      
+      setShowTranscriptionModal(true);
+    } else {
+      console.log('🎤 WEB SPEECH: Recording still active, not showing modal');
+    }
+  }, [isRecording]);
+
+  const onError = useCallback((error: string) => {
+    console.error('🎤 WEB SPEECH: Error:', error);
+    Alert.alert('Speech Recognition Error', error);
+    setIsRecording(false);
+  }, []);
+
+  // Enhanced Web Speech with context-aware transcription
+  const webSpeech = useWebSpeech({
+    lang: "en-IN", // Default to en-IN as specified
+    onInterim,
+    onFinal,
+    onError,
+    keepAlive: true,
+    enableMicConstraints: true
+  });
   
   // Animation values for recording indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initialize audio session and Web Speech API
+  // Initialize audio session for native platforms only
   useEffect(() => {
     const initializeAudio = async () => {
-      if (Platform.OS === 'web') {
-        // Initialize Web Speech API for web
-        console.log('🎤 AUDIO: Initializing Web Speech API...');
-        const api = TranscriptionService.initializeWebSpeechAPI(
-          (text, isFinal) => {
-            if (isFinal && text.trim()) {
-              console.log('🎤 WEB SPEECH: Final result:', text);
-              setTranscriptionText(text);
-              setShowTranscriptionModal(true);
-            } else if (text.trim()) {
-              console.log('🎤 WEB SPEECH: Interim result:', text);
-              // Optionally show interim results in UI
-            }
-          },
-          (error) => {
-            console.error('🎤 WEB SPEECH: Error:', error);
-            Alert.alert('Speech Recognition Error', error);
-            setIsRecording(false);
-          }
-        );
-        
-        setWebSpeechAPI(api);
-        setIsWebSpeechSupported(api.isSupported);
-        
-        if (api.isSupported) {
-          console.log('✅ AUDIO: Web Speech API initialized');
-        } else {
-          console.log('⚠️ AUDIO: Web Speech API not supported, falling back to file recording');
-        }
-      } else {
+      if (Platform.OS !== 'web') {
         // Initialize Expo Audio for native platforms
         try {
           console.log('🎤 AUDIO: Initializing audio session...');
@@ -347,10 +386,12 @@ export default function QuickJotScreen() {
 
   const handleVoiceInput = async () => {
     if (isRecording) {
-      if (Platform.OS === 'web' && webSpeechAPI && isWebSpeechSupported) {
+      if (Platform.OS === 'web' && webSpeech.isSupported) {
         // Stop Web Speech API
         console.log('🎤 WEB SPEECH: Stopping...');
-        webSpeechAPI.stop();
+        userStoppedRecordingRef.current = true; // Set ref immediately
+        setHasUserStoppedRecording(true); // User intentionally stopped recording
+        webSpeech.stop();
         setIsRecording(false);
         
         // Stop animation
@@ -362,27 +403,18 @@ export default function QuickJotScreen() {
           recordingTimer.current = null;
         }
         
-        // Process the text if we have any
-        if (transcriptionText.trim()) {
-          setIsTranscribing(true);
-          const result = await TranscriptionService.processText(transcriptionText);
-          
-          if (result.success && result.tasks && result.tasks.length > 0) {
-            setExtractedTasks(result.tasks);
-            console.log('🎯 WEB SPEECH: Found', result.tasks.length, 'tasks in text');
-          }
-          
-          setIsTranscribing(false);
-        }
+        // Text processing will happen in the onFinal callback when Web Speech completes
       } else {
         await stopRecording();
       }
     } else {
-      if (Platform.OS === 'web' && webSpeechAPI && isWebSpeechSupported) {
+      if (Platform.OS === 'web' && webSpeech.isSupported) {
         // Start Web Speech API
         console.log('🎤 WEB SPEECH: Starting...');
         try {
-          webSpeechAPI.start();
+          userStoppedRecordingRef.current = false; // Reset ref immediately
+          setHasUserStoppedRecording(false); // Reset flag for new recording
+          await webSpeech.start();
           setIsRecording(true);
           setRecordingDuration(0);
           setTranscriptionText('');
@@ -422,17 +454,23 @@ export default function QuickJotScreen() {
     setThoughts(prev => prev + (prev ? ' ' : '') + transcriptionText);
     setShowTranscriptionModal(false);
     setTranscriptionText('');
+    userStoppedRecordingRef.current = false; // Reset ref immediately
+    setHasUserStoppedRecording(false); // Reset flag after handling transcription
   };
 
   const editTranscription = () => {
     setShowTranscriptionModal(false);
     setThoughts(prev => prev + (prev ? ' ' : '') + transcriptionText);
+    userStoppedRecordingRef.current = false; // Reset ref immediately
+    setHasUserStoppedRecording(false); // Reset flag after handling transcription
     // Focus will be automatically set to the text input
   };
 
   const discardTranscription = () => {
     setShowTranscriptionModal(false);
     setTranscriptionText('');
+    userStoppedRecordingRef.current = false; // Reset ref immediately
+    setHasUserStoppedRecording(false); // Reset flag after handling transcription
   };
 
   const handleSave = () => {
@@ -779,6 +817,13 @@ export default function QuickJotScreen() {
               <Text style={[styles.recordingText, { color: colors.text }]}>
                 Recording... {Math.floor(recordingDuration / 60)}:{(recordingDuration % 60).toString().padStart(2, '0')}
               </Text>
+              {Platform.OS === 'web' && (
+                <VUMeter 
+                  level={webSpeech.vuMeter.level} 
+                  isActive={webSpeech.vuMeter.isActive}
+                  style={{ marginLeft: 12 }}
+                />
+              )}
             </View>
             <Text style={[styles.recordingHint, { color: colors.textSecondary }]}>
               Tap microphone again to stop

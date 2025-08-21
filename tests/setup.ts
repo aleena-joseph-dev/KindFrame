@@ -5,7 +5,7 @@
  */
 
 // Mock Deno environment for Edge Function tests
-global.Deno = {
+(global as any).Deno = {
   env: {
     get: jest.fn((key: string) => {
       const env: Record<string, string> = {
@@ -27,6 +27,39 @@ global.fetch = jest.fn(() =>
     text: () => Promise.resolve(''),
   })
 ) as jest.Mock;
+
+// Mock SpeechRecognition API
+class MockSpeechRecognition {
+  continuous = false;
+  interimResults = false;
+  lang = 'en-US';
+  maxAlternatives = 1;
+  onstart: ((this: MockSpeechRecognition, ev: Event) => any) | null = null;
+  onresult: ((this: MockSpeechRecognition, ev: any) => any) | null = null;
+  onerror: ((this: MockSpeechRecognition, ev: any) => any) | null = null;
+  onend: ((this: MockSpeechRecognition, ev: Event) => any) | null = null;
+
+  start() {
+    if (this.onstart) this.onstart(new Event('start'));
+  }
+
+  stop() {
+    if (this.onend) this.onend(new Event('end'));
+  }
+
+  abort() {
+    if (this.onend) this.onend(new Event('end'));
+  }
+}
+
+(global as any).SpeechRecognition = MockSpeechRecognition;
+(global as any).webkitSpeechRecognition = MockSpeechRecognition;
+
+// Mock window object for browser APIs
+(global as any).window = {
+  SpeechRecognition: MockSpeechRecognition,
+  webkitSpeechRecognition: MockSpeechRecognition,
+};
 
 // Mock console methods to reduce test noise
 const originalConsole = { ...console };

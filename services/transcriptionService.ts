@@ -3,26 +3,25 @@
  * Handles audio-to-text conversion using Supabase Edge Functions
  */
 
+import { initEnhancedWebSpeech } from '@/lib/enhancedSpeechCapture';
+import { cleanTranscript } from '@/lib/refineTranscript';
 import { supabase } from '@/lib/supabase';
 import { Platform } from 'react-native';
+import { validateOrFallback, type CanonicalResult } from './processTextLocal';
 
 export interface TranscriptionResult {
   success: boolean;
   transcriptId?: string;
   rawText?: string;
   cleanedText?: string;
-  tasks?: Array<{
-    title: string;
-    due?: string;
-    tags?: string[];
-    priority?: 'low' | 'med' | 'high';
-  }>;
+  tasks?: CanonicalResult; // Use canonical result format
   error?: string;
   meta?: {
     provider: string;
     platform: string;
     confidence?: number;
     taskCount: number;
+    textProcessingProvider?: 'edge' | 'local';
   };
 }
 
@@ -81,6 +80,12 @@ export class TranscriptionService {
         message: 'Extracting tasks from text...' 
       });
 
+      // Step 3: Extract tasks using edge function with local fallback
+      const taskResult = await this.processTextWithFallback(
+        transcribeResult.cleanedText!, 
+        platform
+      );
+
       onProgress?.({ 
         progress: 100, 
         stage: 'complete', 
@@ -92,8 +97,14 @@ export class TranscriptionService {
         transcriptId: transcribeResult.transcriptId,
         rawText: transcribeResult.rawText,
         cleanedText: transcribeResult.cleanedText,
-        tasks: transcribeResult.tasks,
-        meta: transcribeResult.meta
+        tasks: taskResult,
+        meta: {
+          provider: transcribeResult.meta?.provider || 'unknown',
+          platform,
+          confidence: taskResult.confidence,
+          taskCount: taskResult.items.length,
+          textProcessingProvider: taskResult.forced_rules_applied.includes('local_fallback') ? 'local' : 'edge'
+        }
       };
 
     } catch (error) {
@@ -105,35 +116,153 @@ export class TranscriptionService {
     }
   }
 
+
+
+  /**
+   * Process text with edge function first, fallback to local processing
+   */
+  static async processTextWithFallback(
+    text: string, 
+    platform: 'android' | 'ios' | 'web'
+  ): Promise<CanonicalResult> {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    
+    // Apply text cleaning (time format fixes, grammar corrections, etc.)
+    const cleanedText = cleanTranscript(text);
+    console.log('🧹 CLEANED INPUT:', cleanedText);
+    
+    try {
+      console.log('🔄 PROCESS_TEXT_FUNC: Processing text input');
+      console.log('📝 ORIGINAL INPUT:', text);
+      console.log('📝 CLEANED INPUT:', cleanedText);
+      console.log('📏 INPUT LENGTH:', cleanedText.length);
+
+          // Use Supabase client for proper CORS handling
+          const result = await supabase.functions.invoke('process_text_func', {
+            body: {
+              input: cleanedText,
+              options: {
+                timezone,
+                userId: 'anonymous',
+                maxItems: 15
+              }
+            }
+          });
+          
+          const data = result.data;
+          const error = result.error;
+          
+          console.log('✅ PROCESS_TEXT_FUNC: Response received');
+          console.log('📄 CLEANED TEXT:', data?.cleaned_text);
+          console.log('📋 EXTRACTED ITEMS:', data?.items?.length || 0, 'items');
+          console.log('🎯 SUGGESTION:', data?.suggestion);
+          if (data?.items) {
+            data.items.forEach((item: any, index: number) => {
+              console.log(`  ${index + 1}. [${item.type}] ${item.title}`);
+            });
+          }
+
+          console.log('🔍 PROCESS_TEXT_FUNC: Raw response debug:', {
+            hasError: !!error,
+            hasData: !!data,
+            dataKeys: data ? Object.keys(data) : null,
+            errorMessage: error?.message || null
+          });
+
+      if (error) {
+        console.warn('❌ PROCESS_TEXT_FUNC: Edge function error, falling back to local processing:', error);
+        return validateOrFallback(null, cleanedText);
+      }
+
+      if (!data) {
+        console.warn('❌ PROCESS_TEXT_FUNC: No data received, falling back to local processing');
+        return validateOrFallback(null, cleanedText);
+      }
+
+      if (data.error) {
+        console.warn('❌ PROCESS_TEXT_FUNC: Data contains error, falling back to local processing:', data.error);
+        return validateOrFallback(null, cleanedText);
+      }
+
+      // Convert new function response format to expected CanonicalResult format
+      const convertedResult: CanonicalResult = {
+        items: data.items.map((item: any) => ({
+          type: item.type === 'task' ? 'Task' : 
+                item.type === 'todo' ? 'To-do' :
+                item.type === 'event' ? 'Event' :
+                item.type === 'note' ? 'Note' :
+                item.type === 'journal' ? 'Journal' : 'Note',
+          title: item.title || item.body || 'Untitled',
+          details: item.body || item.notes || null,
+          due_iso: item.start || null,
+          duration_min: null, // Not provided in new schema
+          location: item.location || null,
+          subtasks: []
+        })),
+        suggested_overall_category: data.suggestion.inferredType === 'task' ? 'Task' :
+                                   data.suggestion.inferredType === 'todo' ? 'To-do' :
+                                   data.suggestion.inferredType === 'event' ? 'Event' :
+                                   data.suggestion.inferredType === 'note' ? 'Note' :
+                                   data.suggestion.inferredType === 'journal' ? 'Journal' : 'Note',
+        forced_rules_applied: ['process_text_func'],
+        warnings: data.followups || [],
+        confidence: data.suggestion.confidence
+      };
+      
+      // Clean, focused output logging
+      console.log('✅ PROCESS_TEXT_FUNC: Success');
+      console.log('📊 OUTPUT:', {
+        items: convertedResult.items.length,
+        types: convertedResult.items.map(item => item.type),
+        suggestion: convertedResult.suggested_overall_category,
+        confidence: convertedResult.confidence,
+        followups: data.followups?.length || 0
+      });
+      
+      if (convertedResult.items.length > 0) {
+        console.log('📝 ITEMS:', convertedResult.items.map(item => ({
+          type: item.type,
+          title: item.title,
+          whenText: data.items.find((di: any) => di.title === item.title || di.body === item.title)?.whenText
+        })));
+      }
+
+      return convertedResult;
+
+            } catch (error) {
+          console.warn('❌ PROCESS_TEXT_FUNC: Exception occurred, falling back to local processing:', error);
+          return validateOrFallback(null, cleanedText);
+        }
+  }
+
   /**
    * Process text directly (for web speech API results)
+   * @deprecated Use processTextWithFallback instead for better reliability
    */
   static async processText(
     text: string,
     platform: 'web' | 'electron' = 'web'
   ): Promise<TranscriptionResult> {
     try {
-      console.log('🎤 TRANSCRIPTION: Processing text directly:', text.substring(0, 100));
 
-      const { data, error } = await supabase.functions.invoke('process_text', {
+      const { data, error } = await supabase.functions.invoke('process_text_func', {
         body: {
-          text: text.trim(),
-          platform,
-          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+          input: text.trim(),
+          options: {
+            timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+            userId: 'anonymous',
+            maxItems: 15
+          }
         }
       });
 
       if (error) {
-        console.error('🎤 TRANSCRIPTION: Edge function error:', error);
         return { success: false, error: error.message || 'Processing failed' };
       }
 
       if (!data || data.error) {
-        console.error('🎤 TRANSCRIPTION: Response error:', data?.error);
         return { success: false, error: data?.message || 'Processing failed' };
       }
-
-      console.log('✅ TRANSCRIPTION: Text processing successful');
       return {
         success: true,
         transcriptId: data.transcript.id,
@@ -238,8 +367,6 @@ export class TranscriptionService {
     error?: string;
   }> {
     try {
-      console.log('🎤 TRANSCRIPTION: Starting transcription for:', storagePath);
-
       const { data, error } = await supabase.functions.invoke('transcribe', {
         body: {
           storagePath,
@@ -249,16 +376,16 @@ export class TranscriptionService {
       });
 
       if (error) {
-        console.error('🎤 TRANSCRIPTION: Edge function error:', error);
+        console.error('❌ TRANSCRIBE: Edge function error:', error);
         return { success: false, error: error.message || 'Transcription failed' };
       }
 
       if (!data || data.error) {
-        console.error('🎤 TRANSCRIPTION: Response error:', data?.error);
+        console.error('❌ TRANSCRIBE: Response error:', data?.error);
         return { success: false, error: data?.message || 'Transcription failed' };
       }
 
-      console.log('✅ TRANSCRIPTION: Audio transcription successful');
+      console.log('✅ TRANSCRIBE: Audio processed successfully');
       return {
         success: true,
         transcriptId: data.transcript.id,
@@ -296,45 +423,47 @@ export class TranscriptionService {
       };
     }
 
-    const SpeechRecognition = (window as any).SpeechRecognition || 
-                              (window as any).webkitSpeechRecognition;
+    let stopRecognition: (() => void) | null = null;
+    let isRecording = false;
 
-    if (!SpeechRecognition) {
-      return {
-        start: () => onError('Web Speech API not supported in this browser'),
-        stop: () => {},
-        isSupported: false
-      };
-    }
-
-    const recognition = new SpeechRecognition();
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript;
-        } else {
-          interimTranscript += transcript;
-        }
+    const start = () => {
+      if (isRecording) return;
+      
+      try {
+        isRecording = true;
+        stopRecognition = initEnhancedWebSpeech(
+          (interimText) => {
+            onResult(interimText, false);
+          },
+          (finalText) => {
+            console.log('🎤 SPEECH: Final text captured');
+            onResult(finalText, true);
+          },
+          {
+            language: "en-US",
+            continuous: true,
+            interimResults: true,
+            maxAlternatives: 5,
+            noiseReduction: true
+          }
+        );
+      } catch (error) {
+        onError(`Failed to start speech recognition: ${error}`);
+        isRecording = false;
       }
-
-      onResult(finalTranscript || interimTranscript, !!finalTranscript);
     };
 
-    recognition.onerror = (event: any) => {
-      onError(`Speech recognition error: ${event.error}`);
+    const stop = () => {
+      if (stopRecognition) {
+        stopRecognition();
+        stopRecognition = null;
+      }
+      isRecording = false;
     };
 
     return {
-      start: () => recognition.start(),
-      stop: () => recognition.stop(),
+      start,
+      stop,
       isSupported: true
     };
   }
