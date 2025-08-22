@@ -1,200 +1,191 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  ScrollView,
-  StyleSheet,
-  Alert,
-  Platform,
-} from 'react-native';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { MaterialCommunityIcons as Icon } from '@expo/vector-icons';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useCallback, useMemo, useState } from 'react';
+import { Alert, FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import AIResultCard, { AIResultItem } from '@/components/ui/AIResultCard';
+import EditItemSheet from '@/components/ui/EditItemSheet';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
-import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { DataService } from '@/services/dataService';
-import { TopBar } from '@/components/ui/TopBar';
-import { PopupBg } from '@/components/ui/PopupBg';
 
-interface BreakdownItem {
-  type: 'task' | 'todo' | 'event' | 'note';
-  title: string;
-  description: string;
-  priority?: 'low' | 'medium' | 'high';
-  dueDate?: string;
-  category?: string;
-  confidence: number;
+interface AIBreakdownResults {
+  tasks: AIResultItem[];
+  todos: AIResultItem[];
+  events: AIResultItem[];
 }
 
 export default function AIBreakdownResultsScreen() {
   const router = useRouter();
-  const { mode, colors } = useThemeColors();
+  const { colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack, resetStack } = usePreviousScreen();
-  
   const params = useLocalSearchParams();
-  const [breakdownItems, setBreakdownItems] = useState<BreakdownItem[]>([]);
+  
+  const [items, setItems] = useState<AIBreakdownResults>({ tasks: [], todos: [], events: [] });
   const [isLoading, setIsLoading] = useState(false);
-  const [showSaveModal, setShowSaveModal] = useState(false);
-  const [selectedItem, setSelectedItem] = useState<BreakdownItem | null>(null);
+  const [editingItem, setEditingItem] = useState<{ item: AIResultItem; type: 'TASK' | 'TODO' | 'EVENT' } | null>(null);
+  const [isEditSheetVisible, setIsEditSheetVisible] = useState(false);
 
-  useEffect(() => {
-    // Add this screen to the navigation stack
-    addToStack('ai-breakdown-results');
-    
-    // Get breakdown items from params or navigation state
-    if (params.items) {
-      try {
-        const items = JSON.parse(params.items as string);
-        setBreakdownItems(items);
-      } catch (error) {
-        console.error('Error parsing breakdown items:', error);
-        // Fallback to empty array
-        setBreakdownItems([]);
+  // Parse items from route params
+  React.useEffect(() => {
+    try {
+      if (params.items) {
+        console.log('🎤 DEBUG: Raw params.items:', params.items);
+        const parsedItems = JSON.parse(params.items as string);
+        console.log('🎤 DEBUG: Parsed items:', parsedItems);
+        
+        // Now we expect the correct structure: { tasks: [], todos: [], events: [] }
+        if (parsedItems && (parsedItems.tasks || parsedItems.todos || parsedItems.events)) {
+          console.log('🎤 DEBUG: Setting items with correct structure:', parsedItems);
+          setItems(parsedItems);
+        } else {
+          console.error('Invalid items format:', parsedItems);
+          Alert.alert('Error', 'Invalid AI breakdown results format');
+        }
       }
+    } catch (error) {
+      console.error('Failed to parse AI breakdown items:', error);
+      Alert.alert('Error', 'Failed to load AI breakdown results');
     }
   }, [params.items]);
 
-  const handleBackPress = () => {
-    handleBack();
-  };
+  const allItems = useMemo(() => {
+    const result: Array<{ item: AIResultItem; type: 'TASK' | 'TODO' | 'EVENT' }> = [];
+    
+    // Add null checks and default to empty arrays
+    const tasks = items.tasks || [];
+    const todos = items.todos || [];
+    const events = items.events || [];
+    
+    console.log('🎤 DEBUG: allItems - Current items state:', items);
+    console.log('🎤 DEBUG: allItems - Processing items:', { tasks, todos, events });
+    console.log('🎤 DEBUG: allItems - Tasks length:', tasks.length);
+    console.log('🎤 DEBUG: allItems - Todos length:', todos.length);
+    console.log('🎤 DEBUG: allItems - Events length:', events.length);
+    
+    tasks.forEach(task => {
+      console.log('🎤 DEBUG: Adding task:', task);
+      result.push({ item: task, type: 'TASK' });
+    });
+    todos.forEach(todo => {
+      console.log('🎤 DEBUG: Adding todo:', todo);
+      result.push({ item: todo, type: 'TODO' });
+    });
+    events.forEach(event => {
+      console.log('🎤 DEBUG: Adding event:', event);
+      result.push({ item: event, type: 'EVENT' });
+    });
+    
+    console.log('🎤 DEBUG: allItems - Final result:', result);
+    console.log('🎤 DEBUG: allItems - Final result length:', result.length);
+    
+    return result;
+  }, [items]);
 
-  const getTypeIcon = (type: string) => {
-    switch (type) {
-      case 'task':
-        return '📋';
-      case 'todo':
-        return '✅';
-      case 'event':
-        return '📅';
-      case 'note':
-        return '📝';
-      default:
-        return '📄';
-    }
-  };
+  const handleEditItem = useCallback((item: AIResultItem, type: 'TASK' | 'TODO' | 'EVENT') => {
+    setEditingItem({ item, type });
+    setIsEditSheetVisible(true);
+  }, []);
 
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'task':
-        return colors.primary;
-      case 'todo':
-        return colors.secondary;
-      case 'event':
-        return colors.accent;
-      case 'note':
-        return colors.textSecondary;
-      default:
-        return colors.border;
-    }
-  };
+  const handleSaveItem = useCallback(async (updatedItem: AIResultItem) => {
+    if (!editingItem) return;
 
-  const getPriorityColor = (priority: string) => {
-    switch (priority) {
-      case 'high':
-        return '#ef4444';
-      case 'medium':
-        return '#f59e0b';
-      case 'low':
-        return '#10b981';
-      default:
-        return colors.textSecondary;
-    }
-  };
-
-  const handleSaveItem = async (item: BreakdownItem, saveType: 'todo' | 'note') => {
     setIsLoading(true);
     try {
-      if (saveType === 'todo') {
-        await DataService.createTodo({
-          title: item.title,
-          description: item.description,
-          is_completed: false,
-          priority: item.priority || 'medium',
-          category: item.category || 'personal'
-        });
-        Alert.alert('Success', 'Item saved as Todo!');
-      } else if (saveType === 'note') {
-        await DataService.createNote({
-          title: item.title,
-          content: item.description,
-          category: item.category || 'personal'
-        });
-        Alert.alert('Success', 'Item saved as Note!');
-      }
-      
-      // Remove the saved item from the list
-      setBreakdownItems(prev => prev.filter(i => i !== item));
+      // Update local state first
+      setItems(prev => {
+        const newItems = { ...prev };
+        
+        switch (editingItem.type) {
+          case 'TASK':
+            newItems.tasks = prev.tasks?.map(task => 
+              task.title === editingItem.item.title ? updatedItem : task
+            ) || [];
+            break;
+          case 'TODO':
+            newItems.todos = prev.todos?.map(todo => 
+              todo.title === editingItem.item.title ? updatedItem : todo
+            ) || [];
+            break;
+          case 'EVENT':
+            newItems.events = prev.events?.map(event => 
+              event.title === editingItem.item.title ? updatedItem : event
+            ) || [];
+            break;
+        }
+        
+        return newItems;
+      });
+
+      // For now, just log the save - in a real app, you'd persist to database
+      console.log('Saving updated item:', updatedItem);
+      Alert.alert('Success', 'Item updated successfully (local only)');
     } catch (error) {
-      console.error('Error saving item:', error);
+      console.error('Failed to save item:', error);
       Alert.alert('Error', 'Failed to save item. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [editingItem]);
 
-  const handleSaveAllAsType = async (saveType: 'todo' | 'note') => {
-    if (breakdownItems.length === 0) {
-      Alert.alert('No Items', 'There are no items to save.');
-      return;
-    }
-
+  const handleSaveAllAsType = useCallback(async (type: 'TASK' | 'TODO' | 'EVENT') => {
     setIsLoading(true);
     try {
-      for (const item of breakdownItems) {
-        if (saveType === 'todo') {
-          await DataService.createTodo({
-            title: item.title,
-            description: item.description,
-            is_completed: false,
-            priority: item.priority || 'medium',
-            category: item.category || 'personal'
-          });
-        } else if (saveType === 'note') {
-          await DataService.createNote({
-            title: item.title,
-            content: item.description,
-            category: item.category || 'personal'
-          });
-        }
+      const itemsToSave = allItems.map(({ item }) => item);
+      
+      if (itemsToSave.length === 0) {
+        Alert.alert('No Items', 'There are no items to save.');
+        return;
       }
       
-      Alert.alert('Success', `All ${breakdownItems.length} items saved as ${saveType === 'todo' ? 'Todos' : 'Notes'}!`);
-      setBreakdownItems([]); // Clear all items
+      // For now, just log the save - in a real app, you'd persist to database
+      console.log(`Saving ${itemsToSave.length} items as ${type}s:`, itemsToSave);
+      
+      Alert.alert('Success', `All items would be saved as ${type}s (local only)`);
+      router.back();
     } catch (error) {
-      console.error('Error saving all items:', error);
+      console.error('Failed to save all items:', error);
       Alert.alert('Error', 'Failed to save some items. Please try again.');
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [allItems, router]);
 
-  const handleItemPress = (item: BreakdownItem) => {
-    setSelectedItem(item);
-    setShowSaveModal(true);
-  };
+  const renderItem = useCallback(({ item: { item, type } }: { item: { item: AIResultItem; type: 'TASK' | 'TODO' | 'EVENT' } }) => (
+    <AIResultCard
+      item={item}
+      type={type}
+      confidence={90} // Default confidence for now
+      onEdit={() => handleEditItem(item, type)}
+      onSave={handleSaveItem}
+    />
+  ), [handleEditItem, handleSaveItem]);
 
-  if (breakdownItems.length === 0) {
+  const keyExtractor = useCallback((item: { item: AIResultItem; type: 'TASK' | 'TODO' | 'EVENT' }) => 
+    `${item.type}-${item.item.title}`, []);
+
+  const getItemLayout = useCallback((data: any, index: number) => ({
+    length: 200, // Approximate card height
+    offset: 200 * index,
+    index,
+  }), []);
+
+  if (allItems.length === 0) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-        <TopBar
-          title="AI Breakdown Results"
-          onBack={handleBackPress}
-          showBack={true}
-        />
         <View style={styles.emptyContainer}>
+          <Icon name="text-search" size={64} color={colors.textSecondary} />
           <Text style={[styles.emptyTitle, { color: colors.text }]}>
-            No Breakdown Items
+            No AI Breakdown Results
           </Text>
           <Text style={[styles.emptySubtitle, { color: colors.textSecondary }]}>
-            Run AI breakdown on some text to see results here.
+            Try running AI breakdown on some text first
           </Text>
           <TouchableOpacity
             style={[styles.backButton, { backgroundColor: colors.primary }]}
-            onPress={handleBackPress}
+            onPress={() => router.back()}
           >
-            <Text style={[styles.backButtonText, { color: colors.background }]}>
+            <Text style={[styles.bulkButtonText, { color: '#FFF' }]}>
               Go Back
             </Text>
           </TouchableOpacity>
@@ -205,181 +196,77 @@ export default function AIBreakdownResultsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar
-        title="AI Breakdown Results"
-        onBack={handleBackPress}
-        showBack={true}
-      />
-      
+      {/* Header */}
       <View style={styles.header}>
-        <Text style={[styles.headerTitle, { color: colors.text }]}>
-          Found {breakdownItems.length} Items
-        </Text>
-        <Text style={[styles.headerSubtitle, { color: colors.textSecondary }]}>
-          Tap on items to save them individually or use bulk actions below
-        </Text>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+        >
+          <Icon name="arrow-left" size={24} color={colors.text} />
+        </TouchableOpacity>
+        
+        <View style={styles.headerContent}>
+          <Text style={[styles.title, { color: colors.text }]}>
+            AI Breakdown Results
+          </Text>
+          <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
+            Found {allItems.length} Items
+          </Text>
+          <Text style={[styles.instruction, { color: colors.textSecondary }]}>
+            Tap on items to edit them individually or use bulk actions below
+          </Text>
+        </View>
       </View>
 
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+      {/* Items List */}
+      <FlatList
+        data={allItems}
+        renderItem={renderItem}
+        keyExtractor={keyExtractor}
+        getItemLayout={getItemLayout}
+        initialNumToRender={6}
+        removeClippedSubviews={true}
         showsVerticalScrollIndicator={false}
-      >
-        {breakdownItems.map((item, index) => (
-          <TouchableOpacity
-            key={index}
-            style={[styles.itemCard, { 
-              backgroundColor: colors.surface,
-              borderColor: getTypeColor(item.type)
-            }]}
-            onPress={() => handleItemPress(item)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.itemHeader}>
-              <View style={styles.itemTypeContainer}>
-                <Text style={styles.itemTypeIcon}>
-                  {getTypeIcon(item.type)}
-                </Text>
-                <View style={styles.itemTypeInfo}>
-                  <Text style={[styles.itemType, { color: getTypeColor(item.type) }]}>
-                    {item.type.toUpperCase()}
-                  </Text>
-                  <Text style={[styles.itemConfidence, { color: colors.textSecondary }]}>
-                    {Math.round(item.confidence * 100)}% confidence
-                  </Text>
-                </View>
-              </View>
-              {item.priority && (
-                <View style={[styles.priorityBadge, { backgroundColor: getPriorityColor(item.priority) }]}>
-                  <Text style={styles.priorityText}>
-                    {item.priority.toUpperCase()}
-                  </Text>
-                </View>
-              )}
-            </View>
-            
-            <Text style={[styles.itemTitle, { color: colors.text }]}>
-              {item.title}
-            </Text>
-            
-            {item.description && item.description !== item.title && (
-              <Text style={[styles.itemDescription, { color: colors.textSecondary }]}>
-                {item.description}
-              </Text>
-            )}
-            
-            <View style={styles.itemFooter}>
-              {item.category && (
-                <View style={[styles.categoryBadge, { backgroundColor: colors.border }]}>
-                  <Text style={[styles.categoryText, { color: colors.textSecondary }]}>
-                    {item.category}
-                  </Text>
-                </View>
-              )}
-              {item.dueDate && (
-                <Text style={[styles.dueDate, { color: colors.textSecondary }]}>
-                    Due: {new Date(item.dueDate).toLocaleDateString()}
-                </Text>
-              )}
-            </View>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
+        contentContainerStyle={styles.listContent}
+        style={styles.list}
+      />
 
-      <View style={styles.actionBar}>
+      {/* Bulk Actions */}
+      <View style={[styles.bulkActions, { backgroundColor: colors.surface }]}>
         <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: colors.secondary }]}
-          onPress={() => handleSaveAllAsType('todo')}
-          disabled={isLoading || breakdownItems.length === 0}
+          style={[styles.bulkButton, { backgroundColor: '#EF4444' }]}
+          onPress={() => handleSaveAllAsType('TODO')}
+          disabled={isLoading}
         >
-          <Text style={[styles.actionButtonText, { color: colors.background }]}>
+          <Icon name="check-all" size={20} color="#FFF" />
+          <Text style={[styles.bulkButtonText, { color: '#FFF' }]}>
             Save All as Todos
           </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity
-          style={[styles.actionButton, { backgroundColor: colors.accent }]}
-          onPress={() => handleSaveAllAsType('note')}
-          disabled={isLoading || breakdownItems.length === 0}
+          style={[styles.bulkButton, { backgroundColor: '#10B981' }]}
+          onPress={() => handleSaveAllAsType('EVENT')}
+          disabled={isLoading}
         >
-          <Text style={[styles.actionButtonText, { color: colors.background }]}>
-            Save All as Notes
+          <Icon name="calendar-plus" size={20} color="#FFF" />
+          <Text style={[styles.bulkButtonText, { color: '#FFF' }]}>
+            Save All as Events
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Item Detail Modal */}
-      <PopupBg
-        visible={showSaveModal}
-        onRequestClose={() => setShowSaveModal(false)}
-        size="medium"
-        color={colors.surface}
-        showSkip={false}
-        closeOnOutsideTap={true}
-      >
-        <View style={styles.modalContent}>
-          <Text style={[styles.modalTitle, { color: colors.text }]}>
-            Save Item
-          </Text>
-          
-          {selectedItem && (
-            <View style={styles.modalItem}>
-              <Text style={[styles.modalItemTitle, { color: colors.text }]}>
-                {selectedItem.title}
-              </Text>
-              <Text style={[styles.modalItemType, { color: getTypeColor(selectedItem.type) }]}>
-                Type: {selectedItem.type.toUpperCase()}
-              </Text>
-              {selectedItem.description && (
-                <Text style={[styles.modalItemDescription, { color: colors.textSecondary }]}>
-                  {selectedItem.description}
-                </Text>
-              )}
-            </View>
-          )}
-          
-          <View style={styles.modalActions}>
-            <TouchableOpacity
-              style={[styles.modalActionButton, { backgroundColor: colors.secondary }]}
-              onPress={() => {
-                if (selectedItem) {
-                  handleSaveItem(selectedItem, 'todo');
-                  setShowSaveModal(false);
-                }
-              }}
-              disabled={isLoading}
-            >
-              <Text style={[styles.modalActionText, { color: colors.background }]}>
-                Save as Todo
-              </Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[styles.modalActionButton, { backgroundColor: colors.accent }]}
-              onPress={() => {
-                if (selectedItem) {
-                  handleSaveItem(selectedItem, 'note');
-                  setShowSaveModal(false);
-                }
-              }}
-              disabled={isLoading}
-            >
-              <Text style={[styles.modalActionText, { color: colors.background }]}>
-                Save as Note
-              </Text>
-            </TouchableOpacity>
-          </View>
-          
-          <TouchableOpacity
-            style={[styles.modalCancelButton, { borderColor: colors.border }]}
-            onPress={() => setShowSaveModal(false)}
-          >
-            <Text style={[styles.modalCancelText, { color: colors.textSecondary }]}>
-              Cancel
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </PopupBg>
+      {/* Edit Sheet */}
+      <EditItemSheet
+        isVisible={isEditSheetVisible}
+        item={editingItem?.item || null}
+        type={editingItem?.type || 'TASK'}
+        onClose={() => {
+          setIsEditSheetVisible(false);
+          setEditingItem(null);
+        }}
+        onSave={handleSaveItem}
+      />
     </SafeAreaView>
   );
 }
@@ -388,203 +275,83 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  emptyTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 12,
-    textAlign: 'center',
-  },
-  emptySubtitle: {
-    fontSize: 16,
-    textAlign: 'center',
-    marginBottom: 32,
-    lineHeight: 24,
-  },
-  backButton: {
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 12,
-  },
-  backButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
   header: {
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0,0,0,0.1)',
   },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  headerSubtitle: {
-    fontSize: 14,
-    lineHeight: 20,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 100,
-  },
-  itemCard: {
-    borderWidth: 2,
-    borderRadius: 16,
-    padding: 20,
-    marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  itemHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 16,
-  },
-  itemTypeContainer: {
-    flexDirection: 'row',
+  backButton: {
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
     alignItems: 'center',
-    flex: 1,
+    borderRadius: 22,
+    marginBottom: 16,
   },
-  itemTypeIcon: {
+  headerContent: {
+    alignItems: 'center',
+  },
+  title: {
     fontSize: 24,
-    marginRight: 12,
-  },
-  itemTypeInfo: {
-    flex: 1,
-  },
-  itemType: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 4,
-    letterSpacing: 0.5,
-  },
-  itemConfidence: {
-    fontSize: 11,
-    opacity: 0.8,
-  },
-  priorityBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  priorityText: {
-    color: 'white',
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  itemTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-    lineHeight: 24,
-  },
-  itemDescription: {
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 16,
-  },
-  itemFooter: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  categoryBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  categoryText: {
-    fontSize: 10,
-    fontWeight: '500',
-  },
-  dueDate: {
-    fontSize: 12,
-    fontStyle: 'italic',
-  },
-  actionBar: {
-    flexDirection: 'row',
-    padding: 20,
-    paddingBottom: 32,
-    gap: 12,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.1)',
-  },
-  actionButton: {
-    flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  actionButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  modalContent: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginBottom: 20,
+    fontWeight: '700',
+    marginBottom: 8,
     textAlign: 'center',
   },
-  modalItem: {
-    width: '100%',
-    marginBottom: 24,
-  },
-  modalItemTitle: {
+  subtitle: {
     fontSize: 16,
     fontWeight: '600',
     marginBottom: 8,
+    textAlign: 'center',
   },
-  modalItemType: {
+  instruction: {
     fontSize: 14,
-    fontWeight: '500',
-    marginBottom: 8,
-  },
-  modalItemDescription: {
-    fontSize: 14,
+    textAlign: 'center',
     lineHeight: 20,
   },
-  modalActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 20,
-  },
-  modalActionButton: {
+  list: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    alignItems: 'center',
   },
-  modalActionText: {
-    fontSize: 14,
+  listContent: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+  },
+  bulkActions: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0,0,0,0.1)',
+    gap: 12,
+  },
+  bulkButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  bulkButtonText: {
+    fontSize: 16,
     fontWeight: '600',
   },
-  modalCancelButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 12,
-    borderWidth: 1,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 40,
   },
-  modalCancelText: {
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    marginTop: 16,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
     fontSize: 16,
-    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 22,
   },
 });

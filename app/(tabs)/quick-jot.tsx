@@ -52,7 +52,26 @@ export default function QuickJotScreen() {
   
   // Check if user is in guest mode
   const isGuestMode = !session;
-  const [thoughts, setThoughts] = useState('');
+  const [thoughts, setThoughts] = useState<string>('');
+  
+  // Safe setter for thoughts to prevent non-string values
+  const setThoughtsSafe = (value: string | ((prev: string) => string)) => {
+    if (typeof value === 'function') {
+      setThoughts(prev => {
+        const result = value(prev);
+        // Ensure the result is a valid string and doesn't contain problematic characters
+        if (typeof result === 'string') {
+          // Clean the string to prevent any potential text node issues
+          return result.replace(/[^\w\s\n.,!?-]/g, '').trim();
+        }
+        return '';
+      });
+    } else {
+      // Clean the input string to prevent any potential text node issues
+      const cleanValue = typeof value === 'string' ? value.replace(/[^\w\s\n.,!?-]/g, '').trim() : '';
+      setThoughts(cleanValue);
+    }
+  };
   const [showSaveOptions, setShowSaveOptions] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -136,6 +155,15 @@ export default function QuickJotScreen() {
     keepAlive: true,
     enableMicConstraints: true
   });
+  
+  // Ensure webSpeech is properly initialized
+  useEffect(() => {
+    if (webSpeech && typeof webSpeech.isSupported === 'boolean') {
+      console.log('🎤 DEBUG: webSpeech initialized successfully:', webSpeech.isSupported);
+    } else {
+      console.log('🎤 DEBUG: webSpeech not properly initialized:', webSpeech);
+    }
+  }, [webSpeech]);
   
   // Animation values for recording indicator
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -420,12 +448,14 @@ export default function QuickJotScreen() {
     
     segmentStartTime.current = Date.now();
     
-    if (Platform.OS === 'web' && webSpeech.isSupported) {
+    if (Platform.OS === 'web' && webSpeech && webSpeech.isSupported) {
       // Start Web Speech API
       try {
         userStoppedRecordingRef.current = false;
         setHasUserStoppedRecording(false);
-        await webSpeech.start();
+        if (webSpeech && typeof webSpeech.start === 'function') {
+          await webSpeech.start();
+        }
         setIsRecording(true);
         // Don't clear transcription text when resuming - it will be processed when stopping
         
@@ -486,7 +516,7 @@ export default function QuickJotScreen() {
       totalDuration: prev.totalDuration + segmentDuration
     }));
     
-    if (Platform.OS === 'web' && webSpeech.isSupported) {
+    if (Platform.OS === 'web' && webSpeech && webSpeech.isSupported) {
       userStoppedRecordingRef.current = true;
       setHasUserStoppedRecording(true);
       
@@ -503,7 +533,9 @@ export default function QuickJotScreen() {
       
       // IMPORTANT: Stop speech recognition first, then wait for final result
       console.log('🎤 DEBUG: Stopping speech recognition...');
-      webSpeech.stop();
+      if (webSpeech && typeof webSpeech.stop === 'function') {
+        webSpeech.stop();
+      }
       
       // Wait for any pending final results (give it a reasonable timeout)
       console.log('🎤 DEBUG: Waiting for final transcription result...');
@@ -545,13 +577,22 @@ export default function QuickJotScreen() {
   };
 
   const appendTranscriptionToText = (transcribedText: string) => {
-    if (!transcribedText.trim()) return;
+    if (!transcribedText || !transcribedText.trim()) return;
     
     console.log('🎤 DEBUG: appendTranscriptionToText called with:', transcribedText);
     console.log('🎤 DEBUG: Current thoughts length:', thoughts.length);
     
-    setThoughts(prev => {
-      const newThoughts = !prev.trim() ? transcribedText : prev + '\n' + transcribedText;
+    // Clean the transcribed text to prevent any potential text node issues
+    const cleanTranscribedText = transcribedText.replace(/[^\w\s\n.,!?-]/g, '').trim();
+    
+    setThoughtsSafe(prev => {
+      // Ensure both prev and transcribedText are valid strings
+      const safePrev = typeof prev === 'string' ? prev : '';
+      const safeTranscribed = cleanTranscribedText;
+      
+      if (!safeTranscribed) return safePrev;
+      
+      const newThoughts = !safePrev.trim() ? safeTranscribed : safePrev + '\n' + safeTranscribed;
       console.log('🎤 DEBUG: New thoughts length:', newThoughts.length);
       return newThoughts;
     });
@@ -576,19 +617,22 @@ export default function QuickJotScreen() {
   };
 
   const processTranscription = async (text: string) => {
-    if (!text.trim()) return;
+    if (!text || !text.trim()) return;
     
     console.log('🎤 SESSION: Processing transcription:', text);
     console.log('🎤 DEBUG: Text length:', text.length);
     console.log('🎤 DEBUG: Text trimmed:', text.trim());
     
+    // Clean the text to prevent any potential text node issues
+    const cleanText = text.replace(/[^\w\s\n.,!?-]/g, '').trim();
+    
     // Simply append transcription to text - AI breakdown happens when user clicks the button
     console.log('🎤 DEBUG: Appending transcription to text...');
-    appendTranscriptionToText(text);
+    appendTranscriptionToText(cleanText);
   };
 
   const handleSave = () => {
-    if (!thoughts.trim()) {
+    if (!safeTextContent(thoughts)) {
       return;
     }
     
@@ -597,9 +641,19 @@ export default function QuickJotScreen() {
   };
 
   const handleAIBreakdown = async () => {
-    if (!thoughts.trim()) {
+    if (!safeTextContent(thoughts)) {
       return;
     }
+    
+    // Prevent duplicate calls
+    if (isAiBreakdownLoading) {
+      console.log('🎤 DEBUG: AI breakdown already in progress, ignoring duplicate call');
+      return;
+    }
+    
+    console.log('🎤 DEBUG: handleAIBreakdown called with thoughts:', thoughts);
+    console.log('🎤 DEBUG: Clean text for AI:', getCleanTextForAI(thoughts));
+    
     setIsAiBreakdownLoading(true);
     
     try {
@@ -615,7 +669,7 @@ export default function QuickJotScreen() {
             'Authorization': `Bearer ${process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY}`,
           },
           body: JSON.stringify({
-            polishedText: thoughts.trim(),
+            polishedText: getCleanTextForAI(thoughts),
             tz: "Asia/Kolkata"
           }),
           signal: controller.signal,
@@ -623,19 +677,44 @@ export default function QuickJotScreen() {
 
         clearTimeout(timeoutId);
         
+        console.log('🎤 DEBUG: Edge Function response status:', response.status);
+        console.log('🎤 DEBUG: Edge Function response ok:', response.ok);
+        
         if (response.ok) {
           const result = await response.json();
+          console.log('🎤 DEBUG: Edge Function result:', result);
+          console.log('🎤 DEBUG: Result has tasks:', !!result.tasks);
+          console.log('🎤 DEBUG: Result has todos:', !!result.todos);
+          console.log('🎤 DEBUG: Result has events:', !!result.events);
+          
           if (result.tasks || result.todos || result.events) {
             // Convert the new API structure to our existing format
             const convertedItems = convertBreakdownToItems(result);
+            console.log('🎤 DEBUG: Setting AI breakdown items:', convertedItems);
             setAiBreakdownItems(convertedItems);
+            
+            // Structure the data properly for the results page
+            const structuredData = {
+              tasks: convertedItems.filter(item => item.type === 'task'),
+              todos: convertedItems.filter(item => item.type === 'todo'),
+              events: convertedItems.filter(item => item.type === 'event')
+            };
+            
+            console.log('🎤 DEBUG: Structured data for results page:', structuredData);
+            
+            // Navigate to results page
+            console.log('🎤 DEBUG: Navigating to AI breakdown results page');
             router.push({
               pathname: '/(tabs)/ai-breakdown-results',
-              params: { items: JSON.stringify(convertedItems) }
+              params: { items: JSON.stringify(structuredData) }
             });
             console.log('✅ AI Breakdown Edge Function successful:', convertedItems.length, 'items');
             return;
+          } else {
+            console.log('🎤 DEBUG: Edge Function returned empty results, falling back to client-side');
           }
+        } else {
+          console.log('🎤 DEBUG: Edge Function response not ok, status:', response.status);
         }
       } catch (edgeError) {
         clearTimeout(timeoutId);
@@ -648,22 +727,50 @@ export default function QuickJotScreen() {
       
       // Fallback to enhanced client-side breakdown
       console.log('🔄 Using enhanced client-side breakdown as fallback');
-      const mockItems = performMockBreakdown(thoughts.trim());
+      console.log('🎤 DEBUG: About to call performMockBreakdown with:', getCleanTextForAI(thoughts));
+      
+      const mockItems = performMockBreakdown(getCleanTextForAI(thoughts));
+      console.log('🎤 DEBUG: performMockBreakdown returned:', mockItems);
+      
       setAiBreakdownItems(mockItems);
+      
+      // Structure the data properly for the results page
+      const structuredData = {
+        tasks: mockItems.filter(item => item.type === 'task'),
+        todos: mockItems.filter(item => item.type === 'todo'),
+        events: mockItems.filter(item => item.type === 'event')
+      };
+      
+      console.log('🎤 DEBUG: Structured data for results page (fallback):', structuredData);
+      
       router.push({
         pathname: '/(tabs)/ai-breakdown-results',
-        params: { items: JSON.stringify(mockItems) }
+        params: { items: JSON.stringify(structuredData) }
       });
       console.log('✅ Enhanced breakdown successful:', mockItems.length, 'items');
       
     } catch (error) {
       console.error('❌ AI breakdown error:', error);
       console.log('🔄 Using enhanced client-side breakdown as fallback');
-      const mockItems = performMockBreakdown(thoughts.trim());
+      console.log('🎤 DEBUG: About to call performMockBreakdown with:', getCleanTextForAI(thoughts));
+      
+      const mockItems = performMockBreakdown(getCleanTextForAI(thoughts));
+      console.log('🎤 DEBUG: performMockBreakdown returned:', mockItems);
+      
       setAiBreakdownItems(mockItems);
+      
+      // Structure the data properly for the results page
+      const structuredData = {
+        tasks: mockItems.filter(item => item.type === 'task'),
+        todos: mockItems.filter(item => item.type === 'todo'),
+        events: mockItems.filter(item => item.type === 'event')
+      };
+      
+      console.log('🎤 DEBUG: Structured data for results page (fallback):', structuredData);
+      
       router.push({
         pathname: '/(tabs)/ai-breakdown-results',
-        params: { items: JSON.stringify(mockItems) }
+        params: { items: JSON.stringify(structuredData) }
       });
       console.log('✅ Enhanced breakdown successful:', mockItems.length, 'items');
     } finally {
@@ -762,6 +869,10 @@ export default function QuickJotScreen() {
 
   // Convert new API structure to our existing format
   const convertBreakdownToItems = (breakdown: any) => {
+    console.log('🎤 DEBUG: convertBreakdownToItems called with:', breakdown);
+    console.log('🎤 DEBUG: Breakdown type:', typeof breakdown);
+    console.log('🎤 DEBUG: Breakdown keys:', Object.keys(breakdown || {}));
+    
     const items = [];
     
     // Convert tasks (new API structure)
@@ -814,13 +925,22 @@ export default function QuickJotScreen() {
       });
     }
     
+    console.log('🎤 DEBUG: convertBreakdownToItems returning items:', items);
+    console.log('🎤 DEBUG: Converted items count:', items.length);
+    
     return items;
   };
 
   // Enhanced fallback breakdown function for better results
   const performMockBreakdown = (text: string) => {
+    console.log('🎤 DEBUG: performMockBreakdown called with text:', text);
+    console.log('🎤 DEBUG: Text length:', text.length);
+    console.log('🎤 DEBUG: Text type:', typeof text);
+    
     const items = [];
     const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
+    
+    console.log('🎤 DEBUG: Split sentences:', sentences);
     
     for (const sentence of sentences) {
       const trimmedSentence = sentence.trim();
@@ -1289,6 +1409,9 @@ export default function QuickJotScreen() {
     // Sort items by confidence (highest first)
     items.sort((a, b) => b.confidence - a.confidence);
 
+    console.log('🎤 DEBUG: performMockBreakdown returning items:', items);
+    console.log('🎤 DEBUG: Items count:', items.length);
+
     return items;
   };
 
@@ -1520,7 +1643,7 @@ export default function QuickJotScreen() {
 
 
   const handleQuickJotBack = () => {
-    if (thoughts.trim()) {
+    if (safeTextContent(thoughts)) {
       // In guest mode, show popup instead of auto-saving
       if (isGuestMode && !session) {
         // promptSignIn(); // This function is no longer used here
@@ -1528,6 +1651,39 @@ export default function QuickJotScreen() {
       }
     }
     handleBack();
+  };
+
+  // Pre-calculate time strings to prevent text node issues
+  const sessionTimeString = `${Math.floor((recordingSession.totalDuration || 0) / 60).toString().padStart(2, '0')}:${((recordingSession.totalDuration || 0) % 60).toString().padStart(2, '0')}`;
+  const recordingTimeString = `${Math.floor((recordingDuration || 0) / 60).toString().padStart(2, '0')}:${((recordingDuration || 0) % 60).toString().padStart(2, '0')}`;
+  const progressWidth = uploadProgress ? uploadProgress.progress : 0;
+  const progressText = uploadProgress ? `${uploadProgress.progress}% • ${uploadProgress.stage}` : '';
+  
+  // Debug logging to track thoughts state
+  console.log('🎤 DEBUG: Thoughts state type:', typeof thoughts, 'value:', thoughts);
+  console.log('🎤 DEBUG: webSpeech object:', webSpeech);
+  
+  // Helper function to safely render text content for display
+  const safeTextContent = (text: any): string => {
+    if (typeof text === 'string') {
+      // Only remove truly problematic characters, preserve all letters and common punctuation
+      const cleaned = text.replace(/[^\w\s\n.,!?\-()]/g, '').trim();
+      console.log('🎤 DEBUG: safeTextContent input:', text, 'output:', cleaned);
+      return cleaned;
+    }
+    console.log('🎤 DEBUG: safeTextContent non-string input:', text);
+    return '';
+  };
+  
+  // Helper function to get clean text for AI processing (less aggressive sanitization)
+  const getCleanTextForAI = (text: any): string => {
+    if (typeof text === 'string') {
+      // Only remove control characters and truly problematic symbols, preserve all letters
+      const cleaned = text.replace(/[\x00-\x1F\x7F]/g, '').trim();
+      console.log('🎤 DEBUG: getCleanTextForAI input:', text, 'output:', cleaned);
+      return cleaned;
+    }
+    return '';
   };
 
   return (
@@ -1611,8 +1767,8 @@ export default function QuickJotScreen() {
             ]}
             placeholder="Start jotting down your thoughts..."
             placeholderTextColor={colors.textSecondary}
-            value={thoughts}
-            onChangeText={setThoughts}
+            value={safeTextContent(thoughts)}
+            onChangeText={setThoughtsSafe}
             multiline
             textAlignVertical="top"
             autoFocus
@@ -1638,8 +1794,8 @@ export default function QuickJotScreen() {
                   ]}
                   placeholder="Your speech to audio text will appear here..."
                   placeholderTextColor={colors.textSecondary}
-                  value={thoughts}
-                  onChangeText={setThoughts}
+                  value={safeTextContent(thoughts)}
+                  onChangeText={setThoughtsSafe}
                   multiline
                   textAlignVertical="top"
                 />
@@ -1665,7 +1821,7 @@ export default function QuickJotScreen() {
                   {/* Show session timer if we have an active session */}
                   {recordingSession.isActive && (
                     <Text style={[styles.sessionTimer, { color: colors.textSecondary }]}>
-                      Session: {Math.floor(recordingSession.totalDuration / 60).toString().padStart(2, '0')}:{(recordingSession.totalDuration % 60).toString().padStart(2, '0')}
+                      Session: {sessionTimeString}
                     </Text>
                   )}
                 </View>
@@ -1690,14 +1846,14 @@ export default function QuickJotScreen() {
                 </Text>
                 
                 <Text style={[styles.recordingTimer, { color: colors.text }]}>
-                  {Math.floor(recordingDuration / 60).toString().padStart(2, '0')}:{(recordingDuration % 60).toString().padStart(2, '0')}
+                  {recordingTimeString}
                 </Text>
                 
-                {Platform.OS === 'web' && (
+                {Platform.OS === 'web' && webSpeech && (
                   <View style={styles.vuMeterContainer}>
                     <VUMeter 
-                      level={webSpeech.vuMeter.level} 
-                      isActive={webSpeech.vuMeter.isActive}
+                      level={webSpeech?.vuMeter?.level || 0} 
+                      isActive={webSpeech?.vuMeter?.isActive || false}
                     />
                   </View>
                 )}
@@ -1719,21 +1875,21 @@ export default function QuickJotScreen() {
             {uploadProgress ? (
               <>
                 <Text style={[styles.transcribingText, { color: colors.text }]}>
-                  {uploadProgress.message}
+                  {uploadProgress?.message || 'Processing...'}
                 </Text>
                 <View style={[styles.progressBarContainer, { backgroundColor: colors.background }]}>
-                  <View 
-                    style={[
-                      styles.progressBar, 
-                      { 
-                        backgroundColor: colors.primary,
-                        width: `${uploadProgress.progress}%`
-                      }
-                    ]} 
-                  />
+                                  <View 
+                  style={[
+                    styles.progressBar, 
+                    { 
+                      backgroundColor: colors.primary,
+                      width: progressWidth
+                    }
+                  ]} 
+                />
                 </View>
                 <Text style={[styles.progressText, { color: colors.textSecondary }]}>
-                  {uploadProgress.progress}% • {uploadProgress.stage}
+                  {progressText}
                 </Text>
               </>
             ) : (
@@ -1754,7 +1910,7 @@ export default function QuickJotScreen() {
 
       {/* Done Button with AI Option */}
       <View style={[styles.doneButtonContainer, { backgroundColor: colors.background }]}>
-        {thoughts.trim() && (
+        {safeTextContent(thoughts) && (
           <TouchableOpacity
             style={[
               styles.aiBreakdownButton,
@@ -1764,7 +1920,7 @@ export default function QuickJotScreen() {
               },
             ]}
             onPress={handleAIBreakdown}
-            disabled={!thoughts.trim() || isAiBreakdownLoading}
+            disabled={!safeTextContent(thoughts) || isAiBreakdownLoading}
           >
             <BreakDownIcon size={20} color={colors.background} />
             <Text style={[styles.aiBreakdownButtonText, { color: colors.background }]}>
@@ -1797,11 +1953,11 @@ export default function QuickJotScreen() {
             styles.doneButton,
             {
               backgroundColor: colors.primary,
-              opacity: !thoughts.trim() ? 0.5 : 1,
+              opacity: !safeTextContent(thoughts) ? 0.5 : 1,
             },
           ]}
           onPress={handleSave}
-          disabled={!thoughts.trim()}
+          disabled={!safeTextContent(thoughts)}
         >
           <Text style={[styles.doneButtonText, { color: colors.background }]}>
             ✓ Done

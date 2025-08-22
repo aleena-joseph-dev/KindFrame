@@ -59,7 +59,7 @@ export function VUMeter({ level, isActive, style }: VUMeterProps) {
         })}
       </View>
       <Text style={[styles.levelText, { color: colors.textSecondary, fontSize: getResponsiveSize(8, 9, 10) }]}>
-        {level}%
+        {level || 0}%
       </Text>
     </View>
   );
