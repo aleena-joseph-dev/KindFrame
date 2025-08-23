@@ -48,7 +48,8 @@
         {
           "microphonePermission": "Allow KindFrame to access your microphone to record voice notes and convert speech to text."
         }
-      ]
+      ],
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

@@ -1,8 +1,9 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
-import React, { useEffect, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
     Alert,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
@@ -18,6 +19,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+import { fetchUserTasks } from '@/lib/dataService';
 
 interface KanbanTask {
   id: string;
@@ -53,6 +55,8 @@ export default function KanbanScreen() {
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskDescription, setNewTaskDescription] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'low' | 'medium' | 'high'>('medium');
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   const columns: KanbanColumn[] = [
     { id: 'todo', title: 'To Do', color: '#ff6b6b' },
@@ -95,15 +99,56 @@ export default function KanbanScreen() {
     loadTasks();
   }, []);
 
+  // Reload tasks when screen comes into focus (e.g., after saving from AI breakdown)
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.user?.id) {
+        console.log('🎯 KANBAN: Screen focused, reloading tasks from database');
+        loadTasks();
+      }
+    }, [session?.user?.id])
+  );
+
   const loadTasks = async () => {
     try {
-      const savedTasks = await AsyncStorage.getItem('kanban_tasks');
-      if (savedTasks) {
-        setTasks(JSON.parse(savedTasks));
+      if (isGuestMode) {
+        // Guest mode: load from AsyncStorage
+        const savedTasks = await AsyncStorage.getItem('kanban_tasks');
+        if (savedTasks) {
+          setTasks(JSON.parse(savedTasks));
+        }
+      } else if (session?.user?.id) {
+        // Authenticated user: fetch from database
+        setLoading(true);
+        console.log('🎯 KANBAN: Fetching tasks from database for user:', session.user.id);
+        const databaseTasks = await fetchUserTasks(session.user.id);
+        
+        // Convert database tasks to local format
+        const convertedTasks: KanbanTask[] = databaseTasks.map(dbTask => ({
+          id: dbTask.id,
+          title: dbTask.title,
+          description: dbTask.description || '',
+          column: dbTask.status === 'todo' ? 'todo' : 
+                  dbTask.status === 'in_progress' ? 'inProgress' : 
+                  dbTask.status === 'done' ? 'done' : 'todo',
+          createdAt: dbTask.created_at ? new Date(dbTask.created_at) : new Date(),
+          priority: dbTask.priority || 'medium'
+        }));
+        
+        console.log('🎯 KANBAN: Converted', databaseTasks.length, 'database tasks to', convertedTasks.length, 'local tasks');
+        setTasks(convertedTasks);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
+    } finally {
+      setLoading(false);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTasks();
+    setRefreshing(false);
   };
 
   const saveTasks = async (updatedTasks: KanbanTask[]) => {
@@ -247,7 +292,18 @@ export default function KanbanScreen() {
               </Text>
             </View>
             
-            <ScrollView style={styles.taskList} showsVerticalScrollIndicator={false}>
+            <ScrollView 
+              style={styles.taskList} 
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={refreshing}
+                  onRefresh={onRefresh}
+                  colors={[colors.primary]}
+                  tintColor={colors.primary}
+                />
+              }
+            >
               {getTasksForColumn(column.id).map((task) => (
                 <View
                   key={task.id}

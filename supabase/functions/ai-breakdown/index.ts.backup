@@ -1,0 +1,721 @@
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { z } from "https://deno.land/x/zod@v3.23.8/mod.ts";
+
+// ---------- Logging ----------
+function log(event: string, data: any) {
+  const timestamp = new Date().toISOString();
+  const logData = {
+    timestamp,
+    event,
+    data,
+    provider: PROVIDER,
+    model: PROVIDER === 'groq' ? GROQ_MODEL : PROVIDER === 'ollama' ? OLLAMA_MODEL : 'mock'
+  };
+  console.log(`[AI-BREAKDOWN] ${event}:`, JSON.stringify(logData, null, 2));
+}
+
+// ---------- Config ----------
+const ALLOWED_ORIGINS = (Deno.env.get("ALLOWED_ORIGINS") ?? "*").split(",").map((s) => s.trim());
+const PROVIDER = Deno.env.get("LLM_PROVIDER") ?? ""; // "groq" | "ollama" | "mock"
+const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY") ?? "";
+const GROQ_MODEL = Deno.env.get("GROQ_MODEL") ?? "llama-3.1-8b-instant";
+const OLLAMA_URL = Deno.env.get("OLLAMA_URL") ?? "";
+const OLLAMA_MODEL = Deno.env.get("OLLAMA_MODEL") ?? "";
+
+// ---------- CORS ----------
+function corsHeaders(origin: string) {
+  const allow = ALLOWED_ORIGINS.includes("*") || ALLOWED_ORIGINS.includes(origin) ? origin : ALLOWED_ORIGINS[0] ?? "*";
+  return {
+    "Access-Control-Allow-Origin": allow,
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Vary": "Origin"
+  };
+}
+
+// ---------- Schemas ----------
+const TimeBlock = z.object({
+  iso: z.string().optional(),
+  date: z.string().optional(),
+  time: z.string().optional(),
+  tz: z.string().optional(),
+  when_text: z.string().optional()
+});
+
+const BaseItem = z.object({
+  title: z.string().min(1).transform((val) => val.trim()),
+  notes: z.string().optional().transform((val) => val?.trim() || ""),
+  tags: z.array(z.string()).optional().transform((val) => val?.filter((tag) => tag?.trim()) || []),
+  priority: z.enum([
+    "low",
+    "normal",
+    "high"
+  ]).optional()
+});
+
+const TaskItem = BaseItem.extend({
+  due: TimeBlock.optional(),
+  reminder: z.object({
+    iso: z.string().optional(),
+    lead_minutes: z.number().int().optional()
+  }).optional(),
+  projectId: z.string().nullable().optional()
+});
+
+const TodoItem = TaskItem;
+
+const EventItem = BaseItem.extend({
+  start: TimeBlock.optional(),
+  end: TimeBlock.optional(),
+  all_day: z.boolean().optional(),
+  location: z.string().optional(),
+  attendees: z.array(z.string()).optional()
+});
+
+const BreakdownOutput = z.object({
+  tasks: z.array(TaskItem).default([]),
+  todos: z.array(TodoItem).default([]),
+  events: z.array(EventItem).default([]),
+  follow_ups: z.array(z.string()).optional()
+});
+
+// ---------- Prompt ----------
+const SYSTEM_PROMPT = `
+You are a precise structuring assistant for a neurodivergent-friendly productivity app.
+Return STRICT JSON ONLY (no prose, no code fences).
+
+CATEGORIZATION MANDATE:
+- EVENT: doctor's appointment, appointment, meeting, interview, flight/train/bus, ceremony. If time exists but no date, set when_text="today". Do not invent exact ISO.
+- TO-DO: casual, single-step, informal (buy eggs/milk/vegetables, go to supermarket, meet a friend w/out time, call mom). Default date=today if missing. No reminder unless relative.
+- TASK: formal/serious/multi-step (complete project, send report, prepare deck, pay bill). Do not invent time.
+
+RELATIVE TIME:
+- If user says "after 30 minutes / in 2 hours", keep when_text exactly and do not guess ISO (client will compute).
+
+Categories: tasks, todos, events. No duplicates across categories.
+Timezone default: Asia/Kolkata unless input says otherwise. Fill machine fields (iso/date/time/tz) and human "when_text" when possible.
+If ambiguous, add brief questions under follow_ups.
+
+STRICT JSON ONLY. Output only arrays "tasks", "todos", "events", plus optional "follow_ups".
+Output shape:
+{"tasks":[...], "todos":[...], "events":[...], "follow_ups":[...]}
+`;
+
+// ---------- Providers ----------
+async function callGroq(userContent: string) {
+  if (!GROQ_API_KEY || !GROQ_MODEL) throw new Error("CONFIG: GROQ_API_KEY or GROQ_MODEL missing");
+  
+  log("groq_api_call_start", {
+    model: GROQ_MODEL,
+    contentLength: userContent.length
+  });
+  
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: GROQ_MODEL,
+      temperature: 0,
+      response_format: {
+        type: "json_object"
+      },
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT
+        },
+        {
+          role: "user",
+          content: userContent
+        }
+      ]
+    })
+  });
+  
+  const text = await res.text();
+  log("groq_api_response", {
+    status: res.status,
+    statusText: res.statusText,
+    responseLength: text.length,
+    responsePreview: text.slice(0, 200)
+  });
+  
+  if (!res.ok) throw new Error(`GROQ_${res.status}: ${text}`);
+  
+  const json = JSON.parse(text);
+  const content = json?.choices?.[0]?.message?.content ?? "";
+  
+  log("groq_content_extracted", {
+    contentLength: content.length,
+    contentPreview: content.slice(0, 200)
+  });
+  
+  return content;
+}
+
+async function callOllama(userContent: string) {
+  if (!OLLAMA_URL || !OLLAMA_MODEL) throw new Error("CONFIG: OLLAMA_URL or OLLAMA_MODEL missing");
+  
+  log("ollama_api_call_start", {
+    model: OLLAMA_MODEL,
+    url: OLLAMA_URL,
+    contentLength: userContent.length
+  });
+  
+  const res = await fetch(`${OLLAMA_URL.replace(/\/$/, "")}/api/chat`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: OLLAMA_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT
+        },
+        {
+          role: "user",
+          content: userContent
+        }
+      ],
+      options: {
+        temperature: 0
+      },
+      format: "json"
+    })
+  });
+  
+  const text = await res.text();
+  log("ollama_api_response", {
+    status: res.status,
+    statusText: res.statusText,
+    responseLength: text.length,
+    responsePreview: text.slice(0, 200)
+  });
+  
+  if (!res.ok) throw new Error(`OLLAMA_${res.status}: ${text}`);
+  
+  const json = JSON.parse(text);
+  const content = json?.message?.content ?? "";
+  
+  log("ollama_content_extracted", {
+    contentLength: content.length,
+    contentPreview: content.slice(0, 200)
+  });
+  
+  return content;
+}
+
+// ---------- Utils ----------
+const RUNTIME_INFO = {
+  deno: Deno.version,
+  provider: PROVIDER,
+  hasGroqKey: !!GROQ_API_KEY,
+  hasOllamaUrl: !!OLLAMA_URL,
+  model: GROQ_MODEL || OLLAMA_MODEL || null
+};
+
+function stripFences(s: string) {
+  return s.replace(/^```(?:json)?\s*/i, "").replace(/```$/i, "").trim();
+}
+
+function safeParseJSON(s: string) {
+  const raw = stripFences(s);
+  try {
+    return JSON.parse(raw);
+  } catch (e) {
+    const repaired = raw.replace(/,\s*([\]}])/g, "$1");
+    return JSON.parse(repaired);
+  }
+}
+
+// Transform Groq response to our expected format
+function transformGroqResponse(groqData: any, tz: string) {
+  const transformed = {
+    tasks: [],
+    todos: [],
+    events: []
+  };
+  
+  // Helper function to extract and validate title
+  function extractTitle(item: any) {
+    const title = item.text || item.title || item.content || item.name || "";
+    return title.trim() || null;
+  }
+  
+  // Helper function to create a valid item
+  function createValidItem(item: any, type: string) {
+    const title = extractTitle(item);
+    if (!title) {
+      log("skipping_invalid_item", {
+        type,
+        item,
+        reason: "empty_title"
+      });
+      return null;
+    }
+    
+    const baseItem = {
+      title,
+      notes: item.notes || "",
+      tags: item.tags || []
+    };
+    
+    switch(type) {
+      case 'task':
+        return {
+          ...baseItem,
+          priority: item.priority || "normal",
+          due: item.when_iso ? {
+            iso: item.when_iso,
+            tz: item.when_tz || tz
+          } : undefined
+        };
+      case 'todo':
+        return {
+          ...baseItem,
+          priority: item.priority || "normal",
+          due: item.when_iso ? {
+            iso: item.when_iso,
+            tz: item.when_tz || tz
+          } : undefined
+        };
+      case 'event':
+        return {
+          ...baseItem,
+          start: item.when_iso ? {
+            iso: item.when_iso,
+            tz: item.when_tz || tz
+          } : undefined,
+          end: item.end_iso ? {
+            iso: item.end_iso,
+            tz: item.when_tz || tz
+          } : undefined,
+          location: item.location || ""
+        };
+    }
+  }
+  
+  // Transform todos
+  if (groqData.todos && Array.isArray(groqData.todos)) {
+    transformed.todos = groqData.todos.map((todo: any) => createValidItem(todo, 'todo')).filter(Boolean);
+  }
+  
+  // Transform events
+  if (groqData.events && Array.isArray(groqData.events)) {
+    transformed.events = groqData.events.map((event: any) => createValidItem(event, 'event')).filter(Boolean);
+  }
+  
+  // Transform tasks
+  if (groqData.tasks && Array.isArray(groqData.tasks)) {
+    transformed.tasks = groqData.tasks.map((task: any) => createValidItem(task, 'task')).filter(Boolean);
+  }
+  
+  log("groq_response_transformed", {
+    original: {
+      todos: groqData.todos?.length || 0,
+      events: groqData.events?.length || 0,
+      tasks: groqData.tasks?.length || 0
+    },
+    transformed: {
+      todos: transformed.todos.length,
+      events: transformed.events.length,
+      tasks: transformed.tasks.length
+    }
+  });
+  
+  return transformed;
+}
+
+// ---------- Handler ----------
+serve(async (req) => {
+  const url = new URL(req.url);
+  const origin = req.headers.get("Origin") ?? "*";
+  const headers = {
+    "Content-Type": "application/json",
+    ...corsHeaders(origin)
+  };
+  
+  log("request_received", {
+    method: req.method,
+    url: req.url,
+    origin,
+    hasAuth: !!req.headers.get("authorization"),
+    contentType: req.headers.get("content-type")
+  });
+  
+  if (req.method === "OPTIONS") return new Response("ok", { headers });
+  
+  // Health check (no secrets)
+  if (req.method === "GET" && url.pathname.endsWith("/ai-breakdown")) {
+    if (url.searchParams.has("diag")) {
+      log("health_check_diagnostics", {
+        params: Object.fromEntries(url.searchParams)
+      });
+      return new Response(JSON.stringify({
+        ok: true,
+        runtime: RUNTIME_INFO
+      }), { headers });
+    }
+    
+    log("health_check_basic");
+    return new Response(JSON.stringify({
+      ok: true
+    }), { headers });
+  }
+  
+  if (req.method !== "POST") {
+    log("method_not_allowed", {
+      method: req.method
+    });
+    return new Response(JSON.stringify({
+      error: "Use POST for breakdown. GET /ai-breakdown?diag for diagnostics."
+    }), {
+      status: 405,
+      headers
+    });
+  }
+  
+  try {
+    log("processing_start");
+    const body = await req.json().catch(() => ({}));
+    const polishedText = String(body?.polishedText ?? "").trim();
+    const tz = String(body?.tz ?? "Asia/Kolkata");
+    
+    log("request_parsed", {
+      polishedTextLength: polishedText.length,
+      polishedTextPreview: polishedText.slice(0, 100),
+      timezone: tz,
+      bodyKeys: Object.keys(body)
+    });
+    
+    if (!polishedText) {
+      log("validation_failed", {
+        reason: "missing_polished_text"
+      });
+      return new Response(JSON.stringify({
+        error: "polishedText is required"
+      }), {
+        status: 400,
+        headers
+      });
+    }
+    
+    if (!["groq", "ollama", "mock"].includes(PROVIDER)) {
+      log("validation_failed", {
+        reason: "invalid_provider",
+        provider: PROVIDER
+      });
+      return new Response(JSON.stringify({
+        error: "LLM_PROVIDER must be groq | ollama | mock"
+      }), {
+        status: 400,
+        headers
+      });
+    }
+    
+    const userContent = `TIMEZONE=${tz}\nPOLISHED_TEXT:\n${polishedText}`;
+    
+    log("llm_request_prepared", {
+      provider: PROVIDER,
+      userContentLength: userContent.length,
+      userContentPreview: userContent.slice(0, 150)
+    });
+    
+    let raw = "";
+    if (PROVIDER === "groq") {
+      log("calling_groq", {
+        model: GROQ_MODEL,
+        hasApiKey: !!GROQ_API_KEY
+      });
+      raw = await callGroq(userContent);
+    } else if (PROVIDER === "ollama") {
+      log("calling_ollama", {
+        model: OLLAMA_MODEL,
+        url: OLLAMA_URL
+      });
+      raw = await callOllama(userContent);
+    } else {
+      log("using_mock_provider");
+      // Mock provider for debugging
+      raw = JSON.stringify({
+        tasks: [
+          {
+            title: "Example task",
+            notes: "",
+            priority: "normal"
+          }
+        ],
+        todos: [
+          {
+            title: "Example todo"
+          }
+        ],
+        events: [
+          {
+            title: "Example event",
+            start: {
+              when_text: "tomorrow",
+              tz
+            }
+          }
+        ],
+        follow_ups: []
+      });
+    }
+    
+    log("provider_response_received", {
+      raw_length: raw?.length ?? 0,
+      raw_preview: raw?.slice(0, 200),
+      provider: PROVIDER
+    });
+    
+    let json;
+    try {
+      json = safeParseJSON(raw);
+      log("json_parsed_successfully", {
+        jsonType: typeof json
+      });
+    } catch (e) {
+      log("json_parse_failed", {
+        error: String(e),
+        rawPreview: (raw || "").slice(0, 600)
+      });
+      const preview = (raw || "").slice(0, 600);
+      return new Response(JSON.stringify({
+        error: "Model returned non-JSON",
+        preview
+      }), {
+        status: 502,
+        headers
+      });
+    }
+    
+    log("parsed_json_details", {
+      json_type: typeof json,
+      has_tasks: !!json?.tasks,
+      has_todos: !!json?.todos,
+      has_events: !!json?.events,
+      json_keys: json && typeof json === 'object' ? Object.keys(json) : []
+    });
+    
+    // Transform Groq response if needed
+    if (PROVIDER === "groq" && json && typeof json === "object") {
+      log("transforming_groq_response", {
+        before: json
+      });
+      json = transformGroqResponse(json, tz);
+      log("groq_response_transformed", {
+        after: json
+      });
+    }
+    
+    let parsed;
+    try {
+      parsed = BreakdownOutput.parse(json);
+      log("validation_successful", {
+        tasksCount: parsed.tasks.length,
+        todosCount: parsed.todos.length,
+        eventsCount: parsed.events.length
+      });
+    } catch (e: any) {
+      const issues = e?.issues ?? null;
+      log("validation_failed", {
+        issues,
+        json_preview: JSON.stringify(json).slice(0, 400),
+        error: String(e)
+      });
+      
+      // Try to create a fallback response from the raw data
+      log("attempting_fallback_parsing");
+      try {
+        const fallback = {
+          tasks: [],
+          todos: [],
+          events: []
+        };
+        
+        // Extract any valid items we can find
+        if (json && typeof json === 'object') {
+          // Look for any array with items that have titles
+          const allArrays = ['tasks', 'todos', 'events', 'items', 'list'];
+          
+          for (const arrayKey of allArrays) {
+            if (Array.isArray(json[arrayKey])) {
+              for (const item of json[arrayKey]) {
+                if (item && typeof item === 'object' && item.title?.trim()) {
+                  // Try to classify based on title
+                  const title = item.title.trim().toLowerCase();
+                  if (title.includes('appointment') || title.includes('meeting') || title.includes('interview')) {
+                    fallback.events.push({
+                      title: item.title.trim(),
+                      notes: item.notes || "",
+                      tags: item.tags || []
+                    });
+                  } else if (title.includes('buy') || title.includes('call') || title.includes('go to')) {
+                    fallback.todos.push({
+                      title: item.title.trim(),
+                      notes: item.notes || "",
+                      priority: item.priority || "normal",
+                      tags: item.tags || []
+                    });
+                  } else {
+                    fallback.tasks.push({
+                      title: item.title.trim(),
+                      notes: item.notes || "",
+                      priority: item.priority || "normal",
+                      tags: item.tags || []
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+        
+        if (fallback.tasks.length > 0 || fallback.todos.length > 0 || fallback.events.length > 0) {
+          log("fallback_parsing_successful", {
+            fallback
+          });
+          parsed = fallback;
+        } else {
+          throw new Error("No valid items found in fallback parsing");
+        }
+      } catch (fallbackError) {
+        log("fallback_parsing_failed", {
+          error: String(fallbackError)
+        });
+        return new Response(JSON.stringify({
+          error: "Validation failed",
+          issues,
+          raw_response: json
+        }), {
+          status: 422,
+          headers
+        });
+      }
+    }
+    
+    // ---------- Normalization Pass ----------
+    log("normalization_start", {
+      before: parsed
+    });
+    
+    // Classification helper functions
+    function isEventTitle(t: string) {
+      return /\b(appointment|meeting|interview|stand-?up|review|flight|train|bus|ceremony)\b/i.test(t);
+    }
+    
+    function isTodoTitle(t: string) {
+      return /\b(buy|purchase|get|pick\s*up|go to|call|meet)\b/i.test(t);
+    }
+    
+    function isTaskTitle(t: string) {
+      return /\b(complete|finish|submit|prepare|draft|report|invoice|renew|update)\b/i.test(t);
+    }
+    
+    function moveItem(src: any[], dst: any[], idx: number) {
+      dst.push(src[idx]);
+      src.splice(idx, 1);
+    }
+    
+    // Re-route misfiled items
+    for (let i = parsed.tasks.length - 1; i >= 0; i--) {
+      const t = parsed.tasks[i];
+      const title = t.title || "";
+      if (!title.trim()) {
+        // Remove items with empty titles
+        parsed.tasks.splice(i, 1);
+        continue;
+      }
+      if (isEventTitle(title)) moveItem(parsed.tasks, parsed.events, i);
+      else if (isTodoTitle(title)) {}
+    }
+    
+    for (let i = parsed.todos.length - 1; i >= 0; i--) {
+      const t = parsed.todos[i];
+      const title = t.title || "";
+      if (!title.trim()) {
+        // Remove items with empty titles
+        parsed.todos.splice(i, 1);
+        continue;
+      }
+      if (isEventTitle(title)) moveItem(parsed.todos, parsed.events, i);
+      else if (isTaskTitle(title)) moveItem(parsed.todos, parsed.tasks, i);
+    }
+    
+    for (let i = parsed.events.length - 1; i >= 0; i--) {
+      const e = parsed.events[i];
+      const title = e.title || "";
+      if (!title.trim()) {
+        // Remove items with empty titles
+        parsed.events.splice(i, 1);
+        continue;
+      }
+      if (isTodoTitle(title) && !e.start?.time && !e.start?.iso) moveItem(parsed.events, parsed.todos, i);
+    }
+    
+    // Event auto-reminder if start time exists and reminder missing
+    for (const e of parsed.events) {
+      const hasTime = !!(e?.start?.time || e?.start?.iso);
+      if (hasTime && !e.reminder) {
+        e.reminder = {
+          lead_minutes: 30
+        }; // client can compute exact ISO when saving
+      }
+    }
+    
+    log("normalization_complete", {
+      after: parsed
+    });
+    
+    // Normalize tz if missing
+    function ensureTZ(tb: any) {
+      if (!tb) return tb;
+      if ((tb.iso || tb.date || tb.time) && !tb.tz) tb.tz = tz;
+      return tb;
+    }
+    
+    parsed.tasks.forEach((t) => {
+      t.due = ensureTZ(t.due);
+      if (t.reminder?.iso && !t.reminder.lead_minutes) t.reminder.lead_minutes = 10;
+    });
+    
+    parsed.todos.forEach((t) => {
+      t.due = ensureTZ(t.due);
+    });
+    
+    parsed.events.forEach((e) => {
+      e.start = ensureTZ(e.start);
+      e.end = ensureTZ(e.end);
+    });
+    
+    log("processing_complete", {
+      finalOutput: parsed,
+      responseSize: JSON.stringify(parsed).length
+    });
+    
+    return new Response(JSON.stringify(parsed), {
+      status: 200,
+      headers
+    });
+    
+  } catch (e: any) {
+    log("unexpected_error", {
+      error: String(e),
+      errorMessage: e?.message,
+      errorStack: e?.stack
+    });
+    console.error("ERR", e?.message);
+    return new Response(JSON.stringify({
+      error: String(e?.message || e)
+    }), {
+      status: 500,
+      headers
+    });
+  }
+});

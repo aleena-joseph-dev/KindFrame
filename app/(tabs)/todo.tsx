@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import React, { useEffect, useRef, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     FlatList,
@@ -18,6 +19,7 @@ import { TopBar } from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';
+import { fetchUserTodos } from '@/lib/dataService';
 
 interface TodoTask {
   id: string;
@@ -36,6 +38,19 @@ interface TodoTask {
 // Helper to generate a unique ID
 function generateUniqueId(prefix = 'task') {
   return `${prefix}-${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+}
+
+// Helper to get category emoji
+function getCategoryEmoji(category: string): string {
+  const emojiMap: { [key: string]: string } = {
+    'personal': '👤',
+    'work': '💼',
+    'health': '💪',
+    'shopping': '🛒',
+    'learning': '📚',
+    'other': '📝'
+  };
+  return emojiMap[category] || '📝';
 }
 
 // Helper to get visible tasks
@@ -146,6 +161,8 @@ export default function TodoScreen() {
   ];
 
   const [hideCompleted, setHideCompleted] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(false);
   const hideCompletedRef = useRef(hideCompleted);
 
   useEffect(() => {
@@ -156,19 +173,59 @@ export default function TodoScreen() {
     loadTasks();
   }, []);
 
+  // Reload tasks when screen comes into focus (e.g., after saving from AI breakdown)
+  useFocusEffect(
+    useCallback(() => {
+      if (session?.user?.id) {
+        console.log('🎯 TODO: Screen focused, reloading todos from database');
+        loadTasks();
+      }
+    }, [session?.user?.id])
+  );
+
   const loadTasks = async () => {
     try {
-      const savedTasks = await AsyncStorage.getItem('todoTasks');
-      if (savedTasks) {
-        setTasks(JSON.parse(savedTasks));
-      } else {
-        // Load sample tasks for first time
-        setTasks(sampleTasks);
-        await AsyncStorage.setItem('todoTasks', JSON.stringify(sampleTasks));
+      if (isGuestMode) {
+        // Guest mode: load from AsyncStorage
+        const savedTasks = await AsyncStorage.getItem('todoTasks');
+        if (savedTasks) {
+          setTasks(JSON.parse(savedTasks));
+        } else {
+          // Load sample tasks for first time
+          setTasks(sampleTasks);
+          await AsyncStorage.setItem('todoTasks', JSON.stringify(sampleTasks));
+        }
+      } else if (session?.user?.id) {
+        // Authenticated user: fetch from database
+        setLoading(true);
+        console.log('🎯 TODO: Fetching todos from database for user:', session.user.id);
+        const databaseTodos = await fetchUserTodos(session.user.id);
+        
+        // Convert database todos to local format
+        const convertedTasks: TodoTask[] = databaseTodos.map(dbTodo => ({
+          id: dbTodo.id,
+          title: dbTodo.title,
+          completed: dbTodo.is_completed || false,
+          category: {
+            name: dbTodo.category || 'personal',
+            emoji: getCategoryEmoji(dbTodo.category || 'personal')
+          },
+          createdAt: dbTodo.created_at ? new Date(dbTodo.created_at) : new Date(),
+          priority: dbTodo.priority || 'medium',
+          reminder: dbTodo.due_date ? new Date(dbTodo.due_date) : undefined,
+          tags: dbTodo.tags || []
+        }));
+        
+        console.log('🎯 TODO: Converted', databaseTodos.length, 'database todos to', convertedTasks.length, 'local tasks');
+        setTasks(convertedTasks);
       }
     } catch (error) {
       console.error('Error loading tasks:', error);
-      setTasks(sampleTasks);
+      if (isGuestMode) {
+        setTasks(sampleTasks);
+      }
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -178,6 +235,12 @@ export default function TodoScreen() {
     } catch (error) {
       console.error('Error saving tasks:', error);
     }
+  };
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await loadTasks();
+    setRefreshing(false);
   };
 
   const toggleTask = (taskId: string) => {
@@ -469,6 +532,14 @@ export default function TodoScreen() {
         keyExtractor={item => item.id}
         style={styles.taskList}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            colors={[colors.primary]}
+            tintColor={colors.primary}
+          />
+        }
         ListEmptyComponent={
           <View style={styles.emptyState}>
             <Text style={[styles.emptyText, { color: colors.textSecondary }]}>

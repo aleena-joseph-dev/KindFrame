@@ -21,6 +21,7 @@ import { useWebSpeech } from '@/lib/useWebSpeech';
 import { DataService } from '@/services/dataService';
 import { QuickJotService } from '@/services/quickJotService';
 import { TranscriptionService, type UploadProgress } from '@/services/transcriptionService';
+import { AnyItem, EventItem, TaskItem, TodoItem } from '../../lib/types';
 
 interface QuickJotEntry {
   id: string;
@@ -120,12 +121,10 @@ export default function QuickJotScreen() {
       
       // Check if user has already stopped recording
       if (userStoppedRecordingRef.current) {
-        console.log('🎤 DEBUG: User already stopped recording, processing transcription immediately');
-        // Process immediately since user stopped
-        await processTranscription(trimmedText);
-        // Clear after processing
-        currentTranscriptionRef.current = '';
-        setTranscriptionText('');
+        console.log('🎤 DEBUG: User already stopped recording, storing transcription for processing');
+        // Store the transcription text for processing in stopRecording
+        setTranscriptionText(trimmedText);
+        currentTranscriptionRef.current = trimmedText;
       } else {
         // Store the transcription text but don't process it yet
         // It will only be processed when user stops recording
@@ -867,67 +866,285 @@ export default function QuickJotScreen() {
     }
   };
 
-  // Convert new API structure to our existing format
+  // Helper function to fix tags based on content
+  const fixTags = (title: string, originalTags: string[]) => {
+    if (!title || typeof title !== 'string') {
+      return originalTags || [];
+    }
+    
+    const lowerTitle = title.toLowerCase();
+    const tags = [...(originalTags || [])];
+    
+    // Remove 'Casual' tag for professional items
+    if (lowerTitle.includes('doctor') || 
+        lowerTitle.includes('appointment') || 
+        lowerTitle.includes('meeting') ||
+        lowerTitle.includes('work') ||
+        lowerTitle.includes('business') ||
+        lowerTitle.includes('professional') ||
+        lowerTitle.includes('client') ||
+        lowerTitle.includes('patient') ||
+        lowerTitle.includes('customer')) {
+      // Remove 'Casual' if present
+      const casualIndex = tags.indexOf('Casual');
+      if (casualIndex > -1) {
+        tags.splice(casualIndex, 1);
+      }
+      // Add 'Professional' if not present
+      if (!tags.includes('Professional')) {
+        tags.push('Professional');
+      }
+    }
+    
+    return tags;
+  };
+
+  // Convert AI breakdown to structured items
   const convertBreakdownToItems = (breakdown: any) => {
     console.log('🎤 DEBUG: convertBreakdownToItems called with:', breakdown);
-    console.log('🎤 DEBUG: Breakdown type:', typeof breakdown);
-    console.log('🎤 DEBUG: Breakdown keys:', Object.keys(breakdown || {}));
     
-    const items = [];
+    if (!breakdown || typeof breakdown !== 'object') {
+      console.log('🎤 DEBUG: Invalid breakdown, returning empty array');
+      return [];
+    }
     
-    // Convert tasks (new API structure)
+    const items: AnyItem[] = [];
+    
+    // Process tasks
     if (breakdown.tasks && Array.isArray(breakdown.tasks)) {
-      breakdown.tasks.forEach((task: any) => {
-        items.push({
-          type: 'task',
-          title: task.title || '',
-          description: task.notes || '', // new API uses 'notes' instead of 'description'
-          priority: task.priority || 'medium',
-          category: 'personal', // new API doesn't have category, default to personal
-          confidence: 0.9,
-          due_date: task.due?.date || task.due?.iso || null, // new API uses 'due' object
-          tags: task.tags || []
-        });
+      breakdown.tasks.forEach((task: any, index: number) => {
+        if (!task || typeof task !== 'object') return;
+        
+        console.log('🎤 DEBUG: Processing task:', task);
+        console.log('🎤 DEBUG: Task text field:', task.text);
+        console.log('🎤 DEBUG: Task title field:', task.title);
+        console.log('🎤 DEBUG: Task description field:', task.description);
+        
+        // Fix: Use the correct field for title - AI sends 'text' not 'title'
+        const title = task.text || task.title || task.description || `Task ${index + 1}`;
+        console.log('🎤 DEBUG: Final title for task:', title);
+        
+        const fixedTags = fixTags(title, task.tags || []);
+        const itemType = determineItemType(title, fixedTags);
+        
+        const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(task, itemType);
+        
+        if (itemType === 'task') {
+          const taskItem: TaskItem = {
+            type: 'task',
+            title: title.trim(),
+            notes: task.notes || task.text || task.description || '',
+            priority: task.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(taskItem);
+        } else if (itemType === 'todo') {
+          const todoItem: TodoItem = {
+            type: 'todo',
+            title: title.trim(),
+            notes: task.notes || task.text || task.description || '',
+            priority: task.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(todoItem);
+        } else if (itemType === 'event') {
+          const eventItem: EventItem = {
+            type: 'event',
+            title: title.trim(),
+            notes: task.notes || task.description || '',
+            priority: task.priority || 'normal',
+            tags: fixedTags,
+            start: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            },
+            end: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(eventItem);
+        }
       });
     }
     
-    // Convert todos (new API structure)
+    // Process todos
     if (breakdown.todos && Array.isArray(breakdown.todos)) {
-      breakdown.todos.forEach((todo: any) => {
-        items.push({
-          type: 'todo',
-          title: todo.title || '',
-          description: todo.notes || '', // new API uses 'notes' instead of 'description'
-          priority: todo.priority || 'medium',
-          category: 'personal', // new API doesn't have category, default to personal
-          confidence: 0.8,
-          due_date: todo.due?.date || todo.due?.iso || null, // new API uses 'due' object
-          tags: todo.tags || []
-        });
+      breakdown.todos.forEach((todo: any, index: number) => {
+        if (!todo || typeof todo !== 'object') return;
+        
+        console.log('🎤 DEBUG: Processing todo:', todo);
+        console.log('🎤 DEBUG: Todo text field:', todo.text);
+        console.log('🎤 DEBUG: Todo title field:', todo.title);
+        console.log('🎤 DEBUG: Todo description field:', todo.description);
+        
+        // Fix: Use the correct field for title - AI sends 'text' not 'title'
+        const title = todo.text || todo.title || todo.description || `Todo ${index + 1}`;
+        console.log('🎤 DEBUG: Final title for todo:', title);
+        
+        const fixedTags = fixTags(title, todo.tags || []);
+        const itemType = determineItemType(title, fixedTags);
+        
+        const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(todo, itemType);
+        
+        if (itemType === 'task') {
+          const taskItem: TaskItem = {
+            type: 'task',
+            title: title.trim(),
+            notes: todo.notes || todo.text || todo.description || '',
+            priority: todo.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(taskItem);
+        } else if (itemType === 'todo') {
+          const todoItem: TodoItem = {
+            type: 'todo',
+            title: title.trim(),
+            notes: todo.notes || todo.text || todo.description || '',
+            priority: todo.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(todoItem);
+        } else if (itemType === 'event') {
+          const eventItem: EventItem = {
+            type: 'event',
+            title: title.trim(),
+            notes: todo.notes || todo.text || todo.description || '',
+            priority: todo.priority || 'normal',
+            tags: fixedTags,
+            start: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            },
+            end: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(eventItem);
+        }
       });
     }
     
-    // Convert events (new API structure)
+    // Process events
     if (breakdown.events && Array.isArray(breakdown.events)) {
-      breakdown.events.forEach((event: any) => {
-        items.push({
-          type: 'event',
-          title: event.title || '',
-          description: event.notes || '', // new API uses 'notes' instead of 'description'
-          category: 'personal', // new API doesn't have category, default to personal
-          confidence: 0.85,
-          start_time: event.start?.iso || event.start?.date || null, // new API uses 'start' object
-          end_time: event.end?.iso || event.end?.date || null, // new API uses 'end' object
-          location: event.location || null,
-          is_recurring: false, // new API doesn't have this field
-          tags: event.tags || []
-        });
+      breakdown.events.forEach((event: any, index: number) => {
+        if (!event || typeof event !== 'object') return;
+        
+        console.log('🎤 DEBUG: Processing event:', event);
+        console.log('🎤 DEBUG: Event text field:', event.text);
+        console.log('🎤 DEBUG: Event title field:', event.title);
+        console.log('🎤 DEBUG: Event description field:', event.description);
+        
+        // Fix: Use the correct field for title - AI sends 'text' not 'title'
+        const title = event.text || event.title || event.description || `Event ${index + 1}`;
+        console.log('🎤 DEBUG: Final title for event:', title);
+        
+        const fixedTags = fixTags(title, event.tags || []);
+        const itemType = determineItemType(title, fixedTags);
+        
+        const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(event, itemType);
+        
+        if (itemType === 'task') {
+          const taskItem: TaskItem = {
+            type: 'task',
+            title: title.trim(),
+            notes: event.notes || event.text || event.description || '',
+            priority: event.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(taskItem);
+        } else if (itemType === 'todo') {
+          const todoItem: TodoItem = {
+            type: 'todo',
+            title: title.trim(),
+            notes: event.notes || event.text || event.description || '',
+            priority: event.priority || 'normal',
+            tags: fixedTags,
+            due: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(todoItem);
+        } else if (itemType === 'event') {
+          const eventItem: EventItem = {
+            type: 'event',
+            title: title.trim(),
+            notes: event.notes || event.text || event.description || '',
+            priority: event.priority || 'normal',
+            tags: fixedTags,
+            start: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            },
+            end: {
+              date: targetDate,
+              time: targetTime,
+              iso: isoString,
+              when_text: whenText,
+              tz: 'Asia/Kolkata'
+            }
+          };
+          items.push(eventItem);
+        }
       });
     }
     
     console.log('🎤 DEBUG: convertBreakdownToItems returning items:', items);
-    console.log('🎤 DEBUG: Converted items count:', items.length);
-    
     return items;
   };
 
@@ -1000,14 +1217,36 @@ export default function QuickJotScreen() {
           confidence = 0.85;
         }
         
-        items.push({
-          type: 'task',
+        const itemType = determineItemType(trimmedSentence, [determineCategory(lowerSentence)]);
+        const taskItem = {
+          type: itemType,
           title: trimmedSentence,
-          description: trimmedSentence,
+          notes: trimmedSentence,
           priority: priority,
-          category: determineCategory(lowerSentence),
-          confidence: confidence
-        });
+          tags: [determineCategory(lowerSentence)],
+          due: itemType === 'event' ? null : {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          },
+          start: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null,
+          end: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null
+        };
+        items.push(setDefaultDateTime(taskItem, itemType));
       } 
       // Enhanced event detection with time and activity patterns
       else if (lowerSentence.includes('meeting') || 
@@ -1060,7 +1299,56 @@ export default function QuickJotScreen() {
                lowerSentence.includes('date') ||
                lowerSentence.includes('wedding') ||
                lowerSentence.includes('birthday') ||
-               lowerSentence.includes('anniversary')) {
+               lowerSentence.includes('anniversary') ||
+               lowerSentence.includes('doctor') ||
+               lowerSentence.includes('medical') ||
+               lowerSentence.includes('clinic') ||
+               lowerSentence.includes('hospital') ||
+               lowerSentence.includes('therapy') ||
+               lowerSentence.includes('consultation') ||
+               lowerSentence.includes('checkup') ||
+               lowerSentence.includes('examination') ||
+               lowerSentence.includes('procedure') ||
+               lowerSentence.includes('surgery') ||
+               lowerSentence.includes('treatment') ||
+               lowerSentence.includes('session') ||
+               lowerSentence.includes('class') ||
+               lowerSentence.includes('lesson') ||
+               lowerSentence.includes('training') ||
+               lowerSentence.includes('workshop') ||
+               lowerSentence.includes('lecture') ||
+               lowerSentence.includes('presentation') ||
+               lowerSentence.includes('demo') ||
+               lowerSentence.includes('show') ||
+               lowerSentence.includes('concert') ||
+               lowerSentence.includes('movie') ||
+               lowerSentence.includes('theater') ||
+               lowerSentence.includes('museum') ||
+               lowerSentence.includes('exhibition') ||
+               lowerSentence.includes('tour') ||
+               lowerSentence.includes('trip') ||
+               lowerSentence.includes('flight') ||
+               lowerSentence.includes('train') ||
+               lowerSentence.includes('bus') ||
+               lowerSentence.includes('car') ||
+               lowerSentence.includes('drive') ||
+               lowerSentence.includes('walk') ||
+               lowerSentence.includes('run') ||
+               lowerSentence.includes('exercise') ||
+               lowerSentence.includes('workout') ||
+               lowerSentence.includes('gym') ||
+               lowerSentence.includes('yoga') ||
+               lowerSentence.includes('meditation') ||
+               lowerSentence.includes('massage') ||
+               lowerSentence.includes('spa') ||
+               lowerSentence.includes('salon') ||
+               lowerSentence.includes('haircut') ||
+               lowerSentence.includes('manicure') ||
+               lowerSentence.includes('pedicure') ||
+               lowerSentence.includes('facial') ||
+               lowerSentence.includes('waxing') ||
+               lowerSentence.includes('tattoo') ||
+               lowerSentence.includes('piercing')) {
         
         // Determine if it's a recurring event
         let isRecurring = false;
@@ -1074,14 +1362,35 @@ export default function QuickJotScreen() {
           isRecurring = true;
         }
         
-        items.push({
-          type: 'event',
+        const itemType = determineItemType(trimmedSentence, [determineCategory(lowerSentence)]);
+        const eventItem = {
+          type: itemType,
           title: trimmedSentence,
-          description: trimmedSentence,
-          category: determineCategory(lowerSentence),
-          confidence: 0.9,
-          isRecurring: isRecurring
-        });
+          notes: trimmedSentence,
+          tags: [determineCategory(lowerSentence)],
+          due: itemType === 'event' ? null : {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          },
+          start: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null,
+          end: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null
+        };
+        items.push(setDefaultDateTime(eventItem, itemType));
       } 
       // Enhanced todo detection with more actionable patterns
       else if (lowerSentence.includes('buy') || 
@@ -1168,14 +1477,36 @@ export default function QuickJotScreen() {
           confidence = 0.7;
         }
         
-        items.push({
-          type: 'todo',
+        const itemType = determineItemType(trimmedSentence, [determineCategory(lowerSentence)]);
+        const todoItem = {
+          type: itemType,
           title: trimmedSentence,
-          description: trimmedSentence,
+          notes: trimmedSentence,
           priority: priority,
-          category: determineCategory(lowerSentence),
-          confidence: confidence
-        });
+          tags: [determineCategory(lowerSentence)],
+          due: itemType === 'event' ? null : {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          },
+          start: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null,
+          end: itemType === 'event' ? {
+            date: null,
+            time: null,
+            iso: null,
+            when_text: null,
+            tz: 'Asia/Kolkata'
+          } : null
+        };
+        items.push(setDefaultDateTime(todoItem, itemType));
       } 
       // Enhanced note detection with more cognitive patterns
       else if (lowerSentence.includes('remember') || 
@@ -1686,6 +2017,477 @@ export default function QuickJotScreen() {
     return '';
   };
 
+  // Helper function to set default dates and times
+  const setDefaultDateTime = (item: any, type: string) => {
+    const now = new Date();
+    const today = now.toISOString().split('T')[0];
+    
+    // Parse AI's when_time field if available
+    let targetDate = today;
+    let targetTime = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+    let whenText = 'today';
+    
+    // PRIORITY 1: Use AI's parsed when_time if available
+    if (item.when_time) {
+      console.log('🎯 DEBUG: Parsing AI when_time:', item.when_time, 'type:', typeof item.when_time);
+      
+      // Handle different when_time formats from AI
+      if (typeof item.when_time === 'string') {
+        // Format: "43000 PM" (HHMMSS format) or "16:00" (24-hour) or "2:00 PM" (12-hour)
+        console.log('🎯 DEBUG: Processing string when_time:', item.when_time);
+        
+        // Check if it's in HHMMSS format (like "43000 PM")
+        const hhmmssMatch = item.when_time.match(/^(\d{1,2})(\d{2})(\d{2})\s*(AM|PM)?$/i);
+        if (hhmmssMatch) {
+          const hourPart = parseInt(hhmmssMatch[1]);
+          const minutePart = parseInt(hhmmssMatch[2]);
+          const secondPart = parseInt(hhmmssMatch[3]);
+          const period = hhmmssMatch[4]?.toUpperCase();
+          
+          console.log('🎯 DEBUG: Parsed HHMMSS time parts:', { hourPart, minutePart, secondPart, period });
+          
+          if (hourPart >= 1 && hourPart <= 12 && minutePart >= 0 && minutePart <= 59) {
+            // Convert to 24-hour format
+            let hours24 = hourPart;
+            
+            // Handle AM/PM conversion
+            if (period === 'PM' && hourPart !== 12) {
+              hours24 = hourPart + 12; // 1-11 PM becomes 13-23
+            } else if (period === 'AM' && hourPart === 12) {
+              hours24 = 0; // 12 AM becomes 00
+            }
+            
+            targetTime = `${hours24.toString().padStart(2, '0')}:${minutePart.toString().padStart(2, '0')}`;
+            console.log('🎯 DEBUG: Converted HHMMSS to 24-hour format:', targetTime);
+          }
+        } else {
+          // Check if it's already in 24-hour format (HH:MM)
+          const time24Match = item.when_time.match(/^(\d{1,2}):(\d{2})$/);
+          if (time24Match) {
+            const hours = parseInt(time24Match[1]);
+            const minutes = time24Match[2];
+            
+            if (hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59) {
+              targetTime = `${hours.toString().padStart(2, '0')}:${minutes}`;
+              console.log('🎯 DEBUG: Already 24-hour format, using as-is:', targetTime);
+            }
+          } else {
+            // Check if it's in 12-hour format (H:MM AM/PM)
+            const time12Match = item.when_time.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+            if (time12Match) {
+              let hours = parseInt(time12Match[1]);
+              const minutes = time12Match[2];
+              const period = time12Match[3]?.toUpperCase();
+              
+              if (period === 'PM' && hours !== 12) hours += 12;
+              if (period === 'AM' && hours === 12) hours = 0;
+              
+              targetTime = `${hours.toString().padStart(2, '0')}:${minutes}`;
+              console.log('🎯 DEBUG: Converted 12-hour to 24-hour:', targetTime);
+            }
+          }
+        }
+      } else if (typeof item.when_time === 'number') {
+        // Legacy format: 103000 (HHMMSS format)
+        const timeStr = item.when_time.toString().padStart(6, '0');
+        const hourPart = parseInt(timeStr.substring(0, 2));
+        const minutePart = parseInt(timeStr.substring(2, 4));
+        const secondPart = parseInt(timeStr.substring(4, 6));
+        
+        console.log('🎯 DEBUG: Parsed legacy time parts:', { hourPart, minutePart, secondPart });
+        
+        if (hourPart >= 1 && hourPart <= 12 && minutePart >= 0 && minutePart <= 59) {
+          // Convert to 24-hour format
+          let hours24 = hourPart;
+          
+          // Since AI sends PM, we need to convert to 24-hour
+          if (hourPart === 12) {
+            hours24 = 12; // 12 PM stays 12
+          } else {
+            hours24 = hourPart + 12; // 1-11 PM becomes 13-23
+          }
+          
+          targetTime = `${hours24.toString().padStart(2, '0')}:${minutePart.toString().padStart(2, '0')}`;
+          console.log('🎯 DEBUG: Converted legacy to 24-hour format:', targetTime);
+        }
+      }
+    }
+    
+    // PRIORITY 2: Use AI's when_text for date if available
+    if (item.when_text) {
+      const whenTextLower = item.when_text.toLowerCase();
+      console.log('🎯 DEBUG: Parsing AI when_text:', item.when_text);
+      
+      if (whenTextLower.includes('tomorrow')) {
+        const tomorrow = new Date();
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        targetDate = tomorrow.toISOString().split('T')[0];
+        whenText = 'tomorrow';
+        console.log('🎯 DEBUG: Set date to tomorrow:', targetDate);
+      } else if (whenTextLower.includes('day after tomorrow')) {
+        const dayAfterTomorrow = new Date();
+        dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+        targetDate = dayAfterTomorrow.toISOString().split('T')[0];
+        whenText = 'day after tomorrow';
+        console.log('🎯 DEBUG: Set date to day after tomorrow:', targetDate);
+      } else if (whenTextLower.includes('next week')) {
+        const nextWeek = new Date();
+        nextWeek.setDate(nextWeek.getDate() + 7);
+        targetDate = nextWeek.toISOString().split('T')[0];
+        whenText = 'next week';
+        console.log('🎯 DEBUG: Set date to next week:', targetDate);
+      } else if (whenTextLower.includes('next monday') || whenTextLower.includes('next mon')) {
+        const nextMonday = new Date();
+        const currentDay = nextMonday.getDay();
+        const daysToAdd = (1 - currentDay + 7) % 7;
+        nextMonday.setDate(nextMonday.getDate() + daysToAdd);
+        targetDate = nextMonday.toISOString().split('T')[0];
+        whenText = 'next monday';
+        console.log('🎯 DEBUG: Set date to next monday:', targetDate);
+      } else if (whenTextLower.includes('next tuesday') || whenTextLower.includes('next tue')) {
+        const nextTuesday = new Date();
+        const currentDay = nextTuesday.getDay();
+        const daysToAdd = (2 - currentDay + 7) % 7;
+        nextTuesday.setDate(nextTuesday.getDate() + daysToAdd);
+        targetDate = nextTuesday.toISOString().split('T')[0];
+        whenText = 'next tuesday';
+        console.log('🎯 DEBUG: Set date to next tuesday:', targetDate);
+      } else if (whenTextLower.includes('next wednesday') || whenTextLower.includes('next wed')) {
+        const nextWednesday = new Date();
+        const currentDay = nextWednesday.getDay();
+        const daysToAdd = (3 - currentDay + 7) % 7;
+        nextWednesday.setDate(nextWednesday.getDate() + daysToAdd);
+        targetDate = nextWednesday.toISOString().split('T')[0];
+        whenText = 'next wednesday';
+        console.log('🎯 DEBUG: Set date to next wednesday:', targetDate);
+      } else if (whenTextLower.includes('next thursday') || whenTextLower.includes('next thu')) {
+        const nextThursday = new Date();
+        const currentDay = nextThursday.getDay();
+        const daysToAdd = (4 - currentDay + 7) % 7;
+        nextThursday.setDate(nextThursday.getDate() + daysToAdd);
+        targetDate = nextThursday.toISOString().split('T')[0];
+        whenText = 'next thursday';
+        console.log('🎯 DEBUG: Set date to next thursday:', targetDate);
+      } else if (whenTextLower.includes('next friday') || whenTextLower.includes('next fri')) {
+        const nextFriday = new Date();
+        const currentDay = nextFriday.getDay();
+        const daysToAdd = (5 - currentDay + 7) % 7;
+        nextFriday.setDate(nextFriday.getDate() + daysToAdd);
+        targetDate = nextFriday.toISOString().split('T')[0];
+        whenText = 'next friday';
+        console.log('🎯 DEBUG: Set date to next friday:', targetDate);
+      } else if (whenTextLower.includes('next saturday') || whenTextLower.includes('next sat')) {
+        const nextSaturday = new Date();
+        const currentDay = nextSaturday.getDay();
+        const daysToAdd = (6 - currentDay + 7) % 7;
+        nextSaturday.setDate(nextSaturday.getDate() + daysToAdd);
+        targetDate = nextSaturday.toISOString().split('T')[0];
+        whenText = 'next saturday';
+        console.log('🎯 DEBUG: Set date to next saturday:', targetDate);
+      } else if (whenTextLower.includes('next sunday') || whenTextLower.includes('next sun')) {
+        const nextSunday = new Date();
+        const currentDay = nextSunday.getDay();
+        const daysToAdd = (0 - currentDay + 7) % 7;
+        nextSunday.setDate(nextSunday.getDate() + daysToAdd);
+        targetDate = nextSunday.toISOString().split('T')[0];
+        whenText = 'next sunday';
+        console.log('🎯 DEBUG: Set date to next sunday:', targetDate);
+      } else if (whenTextLower.includes('today')) {
+        targetDate = today;
+        whenText = 'today';
+        console.log('🎯 DEBUG: Set date to today:', targetDate);
+      }
+    }
+    
+    // PRIORITY 3: Fallback to parsing title if AI didn't provide time
+    if (!item.when_time && item.title) {
+      const title = item.title.toLowerCase();
+      console.log('🎯 DEBUG: No AI when_time, parsing title for time:', title);
+      
+      // Check for specific time expressions in title
+      if (title.includes('at 2:00') || title.includes('at 2:00 pm') || title.includes('at 2 pm')) {
+        targetTime = '14:00';
+      } else if (title.includes('at 3:00') || title.includes('at 3:00 pm') || title.includes('at 3 pm')) {
+        targetTime = '15:00';
+      } else if (title.includes('at 4:00') || title.includes('at 4:00 pm') || title.includes('at 4 pm')) {
+        targetTime = '16:00';
+      } else if (title.includes('at 5:00') || title.includes('at 5:00 pm') || title.includes('at 5 pm')) {
+        targetTime = '17:00';
+      } else if (title.includes('at 6:00') || title.includes('at 6:00 pm') || title.includes('at 6 pm')) {
+        targetTime = '18:00';
+      } else if (title.includes('at 7:00') || title.includes('at 7:00 pm') || title.includes('at 7 pm')) {
+        targetTime = '19:00';
+      } else if (title.includes('at 8:00') || title.includes('at 8:00 pm') || title.includes('at 8 pm')) {
+        targetTime = '20:00';
+      } else if (title.includes('at 9:00') || title.includes('at 9:00 pm') || title.includes('at 9 pm')) {
+        targetTime = '21:00';
+      } else if (title.includes('at 10:00') || title.includes('at 10:00 pm') || title.includes('at 10 pm')) {
+        targetTime = '22:00';
+      } else if (title.includes('at 11:00') || title.includes('at 11:00 pm') || title.includes('at 11 pm')) {
+        targetTime = '23:00';
+      } else if (title.includes('at 12:00') || title.includes('at 12:00 pm') || title.includes('at noon')) {
+        targetTime = '12:00';
+      } else if (title.includes('at 1:00') || title.includes('at 1:00 pm') || title.includes('at 1 pm')) {
+        targetTime = '13:00';
+      } else if (title.includes('at 12:00 am') || title.includes('at midnight')) {
+        targetTime = '00:00';
+      } else if (title.includes('at 1:00 am') || title.includes('at 1 am')) {
+        targetTime = '01:00';
+      } else if (title.includes('at 2:00 am') || title.includes('at 2 am')) {
+        targetTime = '02:00';
+      } else if (title.includes('at 3:00 am') || title.includes('at 3 am')) {
+        targetTime = '03:00';
+      } else if (title.includes('at 4:00 am') || title.includes('at 4 am')) {
+        targetTime = '04:00';
+      } else if (title.includes('at 5:00 am') || title.includes('at 5 am')) {
+        targetTime = '05:00';
+      } else if (title.includes('at 6:00 am') || title.includes('at 6 am')) {
+        targetTime = '06:00';
+      } else if (title.includes('at 7:00 am') || title.includes('at 7 am')) {
+        targetTime = '07:00';
+      } else if (title.includes('at 8:00 am') || title.includes('at 8 am')) {
+        targetTime = '08:00';
+      } else if (title.includes('at 9:00 am') || title.includes('at 9 am')) {
+        targetTime = '09:00';
+      } else if (title.includes('at 10:00 am') || title.includes('at 10 am')) {
+        targetTime = '10:00';
+      } else if (title.includes('at 11:00 am') || title.includes('at 11 am')) {
+        targetTime = '11:00';
+      }
+    }
+    
+    // Create ISO string for the target date and time
+    const targetDateTime = new Date(`${targetDate}T${targetTime}:00`);
+    const isoString = targetDateTime.toISOString();
+    
+    console.log('🎯 DEBUG: Final parsed datetime:', { targetDate, targetTime, whenText, isoString });
+    
+    if (type === 'todo') {
+      // Todos should have today's date by default, or parsed date
+      if (!item.due?.date && !item.due?.iso) {
+        item.due = {
+          date: targetDate,
+          time: targetTime,
+          iso: isoString,
+          when_text: whenText,
+          tz: 'Asia/Kolkata'
+        };
+      }
+    } else if (type === 'event') {
+      // Events should have start time if missing
+      if (!item.start?.date && !item.start?.iso) {
+        item.start = {
+          date: targetDate,
+          time: targetTime,
+          iso: isoString,
+          when_text: whenText,
+          tz: 'Asia/Kolkata'
+        };
+      }
+      // Set end time to 1 hour after start if missing
+      if (!item.end?.date && !item.end?.iso) {
+        const endDateTime = new Date(targetDateTime.getTime() + 60 * 60 * 1000); // +1 hour
+        item.end = {
+          date: endDateTime.toISOString().split('T')[0],
+          time: endDateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+          iso: endDateTime.toISOString(),
+          when_text: `${whenText} +1 hour`,
+          tz: 'Asia/Kolkata'
+        };
+      }
+    } else if (type === 'task') {
+      // Tasks can have due date if specified, otherwise optional
+      if (item.due?.when_text && !item.due?.date && !item.due?.iso) {
+        // Parse relative time expressions
+        const whenText = item.due.when_text.toLowerCase();
+        if (whenText.includes('today')) {
+          item.due.date = targetDate;
+          item.due.time = targetTime;
+          item.due.iso = isoString;
+        } else if (whenText.includes('tomorrow')) {
+          const tomorrow = new Date();
+          tomorrow.setDate(tomorrow.getDate() + 1);
+          item.due.date = tomorrow.toISOString().split('T')[0];
+          item.due.time = targetTime;
+          item.due.iso = tomorrow.toISOString().split('T')[0] + 'T' + targetTime + ':00';
+        }
+      }
+    }
+    
+    return { targetDate, targetTime, whenText, isoString };
+  };
+
+  // Enhanced categorization logic
+  const determineItemType = (title: string, tags: string[]) => {
+    if (!title || typeof title !== 'string') {
+      return 'todo'; // Default fallback
+    }
+    
+    const lowerTitle = title.toLowerCase();
+    
+    // Events - things that happen at specific times
+    if (lowerTitle.includes('appointment') || 
+        lowerTitle.includes('meeting') || 
+        lowerTitle.includes('call') ||
+        lowerTitle.includes('visit') ||
+        lowerTitle.includes('go to') ||
+        lowerTitle.includes('attend') ||
+        lowerTitle.includes('schedule') ||
+        lowerTitle.includes('party') ||
+        lowerTitle.includes('celebration') ||
+        lowerTitle.includes('dinner') ||
+        lowerTitle.includes('lunch') ||
+        lowerTitle.includes('breakfast') ||
+        lowerTitle.includes('conference') ||
+        lowerTitle.includes('workshop') ||
+        lowerTitle.includes('seminar') ||
+        lowerTitle.includes('webinar') ||
+        lowerTitle.includes('interview') ||
+        lowerTitle.includes('date') ||
+        lowerTitle.includes('wedding') ||
+        lowerTitle.includes('birthday') ||
+        lowerTitle.includes('anniversary') ||
+        lowerTitle.includes('doctor') ||
+        lowerTitle.includes('medical') ||
+        lowerTitle.includes('clinic') ||
+        lowerTitle.includes('hospital') ||
+        lowerTitle.includes('therapy') ||
+        lowerTitle.includes('consultation') ||
+        lowerTitle.includes('checkup') ||
+        lowerTitle.includes('examination') ||
+        lowerTitle.includes('procedure') ||
+        lowerTitle.includes('surgery') ||
+        lowerTitle.includes('treatment') ||
+        lowerTitle.includes('session') ||
+        lowerTitle.includes('class') ||
+        lowerTitle.includes('lesson') ||
+        lowerTitle.includes('training') ||
+        lowerTitle.includes('workshop') ||
+        lowerTitle.includes('lecture') ||
+        lowerTitle.includes('presentation') ||
+        lowerTitle.includes('demo') ||
+        lowerTitle.includes('show') ||
+        lowerTitle.includes('concert') ||
+        lowerTitle.includes('movie') ||
+        lowerTitle.includes('theater') ||
+        lowerTitle.includes('museum') ||
+        lowerTitle.includes('exhibition') ||
+        lowerTitle.includes('tour') ||
+        lowerTitle.includes('trip') ||
+        lowerTitle.includes('flight') ||
+        lowerTitle.includes('train') ||
+        lowerTitle.includes('bus') ||
+        lowerTitle.includes('car') ||
+        lowerTitle.includes('drive') ||
+        lowerTitle.includes('walk') ||
+        lowerTitle.includes('run') ||
+        lowerTitle.includes('exercise') ||
+        lowerTitle.includes('workout') ||
+        lowerTitle.includes('gym') ||
+        lowerTitle.includes('yoga') ||
+        lowerTitle.includes('meditation') ||
+        lowerTitle.includes('massage') ||
+        lowerTitle.includes('spa') ||
+        lowerTitle.includes('salon') ||
+        lowerTitle.includes('haircut') ||
+        lowerTitle.includes('manicure') ||
+        lowerTitle.includes('pedicure') ||
+        lowerTitle.includes('facial') ||
+        lowerTitle.includes('waxing') ||
+        lowerTitle.includes('tattoo') ||
+        lowerTitle.includes('piercing')) {
+      return 'event';
+    }
+    
+    // Tasks - work-related activities
+    if (lowerTitle.includes('complete') || 
+        lowerTitle.includes('finish') || 
+        lowerTitle.includes('work on') ||
+        lowerTitle.includes('develop') ||
+        lowerTitle.includes('build') ||
+        lowerTitle.includes('create') ||
+        lowerTitle.includes('design') ||
+        lowerTitle.includes('plan') ||
+        lowerTitle.includes('prepare') ||
+        lowerTitle.includes('review') ||
+        lowerTitle.includes('update') ||
+        lowerTitle.includes('fix') ||
+        lowerTitle.includes('repair') ||
+        lowerTitle.includes('install') ||
+        lowerTitle.includes('configure') ||
+        lowerTitle.includes('setup') ||
+        lowerTitle.includes('organize') ||
+        lowerTitle.includes('arrange') ||
+        lowerTitle.includes('sort') ||
+        lowerTitle.includes('pack') ||
+        lowerTitle.includes('move') ||
+        lowerTitle.includes('transfer') ||
+        lowerTitle.includes('copy') ||
+        lowerTitle.includes('print') ||
+        lowerTitle.includes('scan') ||
+        lowerTitle.includes('email') ||
+        lowerTitle.includes('text') ||
+        lowerTitle.includes('message') ||
+        lowerTitle.includes('book') ||
+        lowerTitle.includes('reserve') ||
+        lowerTitle.includes('cancel') ||
+        lowerTitle.includes('confirm') ||
+        lowerTitle.includes('verify') ||
+        lowerTitle.includes('test') ||
+        lowerTitle.includes('try') ||
+        lowerTitle.includes('experiment') ||
+        lowerTitle.includes('research') ||
+        lowerTitle.includes('investigate') ||
+        lowerTitle.includes('explore') ||
+        lowerTitle.includes('discover') ||
+        lowerTitle.includes('make') ||
+        lowerTitle.includes('cook') ||
+        lowerTitle.includes('bake') ||
+        lowerTitle.includes('wash') ||
+        lowerTitle.includes('fold') ||
+        lowerTitle.includes('iron') ||
+        lowerTitle.includes('mow') ||
+        lowerTitle.includes('water') ||
+        lowerTitle.includes('plant') ||
+        lowerTitle.includes('harvest')) {
+      return 'task';
+    }
+    
+    // Todos - personal/errand activities
+    if (lowerTitle.includes('buy') || 
+        lowerTitle.includes('get') || 
+        lowerTitle.includes('find') ||
+        lowerTitle.includes('check') ||
+        lowerTitle.includes('order') ||
+        lowerTitle.includes('purchase') ||
+        lowerTitle.includes('clean') ||
+        lowerTitle.includes('call') ||
+        lowerTitle.includes('go for') ||
+        lowerTitle.includes('go to') ||
+        lowerTitle.includes('visit')) {
+      return 'todo';
+    }
+    
+    // Default to task for professional items, todo for casual
+    return tags.includes('Professional') ? 'task' : 'todo';
+  };
+
+  // Helper function to check if text content exists (for JSX rendering)
+  const hasTextContent = (text: any): boolean => {
+    if (typeof text === 'string') {
+      return text.trim().length > 0;
+    }
+    return false;
+  };
+
+  // Helper function to convert 24-hour time to 12-hour format
+  function convert24To12Hour(time24: string): string {
+    const [hours, minutes] = time24.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hours12 = hours === 0 ? 12 : hours > 12 ? hours - 12 : hours;
+    return `${hours12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  }
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Custom Header */}
@@ -1910,7 +2712,7 @@ export default function QuickJotScreen() {
 
       {/* Done Button with AI Option */}
       <View style={[styles.doneButtonContainer, { backgroundColor: colors.background }]}>
-        {safeTextContent(thoughts) && (
+        {hasTextContent(thoughts) && (
           <TouchableOpacity
             style={[
               styles.aiBreakdownButton,
@@ -1920,7 +2722,7 @@ export default function QuickJotScreen() {
               },
             ]}
             onPress={handleAIBreakdown}
-            disabled={!safeTextContent(thoughts) || isAiBreakdownLoading}
+            disabled={!hasTextContent(thoughts) || isAiBreakdownLoading}
           >
             <BreakDownIcon size={20} color={colors.background} />
             <Text style={[styles.aiBreakdownButtonText, { color: colors.background }]}>
@@ -1953,11 +2755,11 @@ export default function QuickJotScreen() {
             styles.doneButton,
             {
               backgroundColor: colors.primary,
-              opacity: !safeTextContent(thoughts) ? 0.5 : 1,
+              opacity: hasTextContent(thoughts) ? 1 : 0.5,
             },
           ]}
           onPress={handleSave}
-          disabled={!safeTextContent(thoughts)}
+          disabled={!hasTextContent(thoughts)}
         >
           <Text style={[styles.doneButtonText, { color: colors.background }]}>
             ✓ Done
