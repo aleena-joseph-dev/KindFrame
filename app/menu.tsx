@@ -7,10 +7,10 @@ import { CalendarIcon } from '@/components/ui/CalendarIcon';
 import { CheckIcon } from '@/components/ui/CheckIcon';
 import { ClockIcon } from '@/components/ui/ClockIcon';
 import { HeadphonesIcon } from '@/components/ui/HeadphonesIcon';
+import { HomeIcon } from '@/components/ui/HomeIcon';
 import { KanbanIcon } from '@/components/ui/KanbanIcon';
 import { NotesIcon } from '@/components/ui/NotesIcon';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import ProfileIcon from '@/components/ui/ProfileIcon';
 import { SmileIcon } from '@/components/ui/SmileIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
 import TopBar from '@/components/ui/TopBar';
@@ -27,6 +27,13 @@ export default function MenuScreen() {
     addToStack('menu');
   }, [addToStack]);
 
+  // Monitor navigation stack changes
+  useEffect(() => {
+    console.log('Menu screen - Current navigation stack:', navigationStack);
+    console.log('Menu screen - Current screen:', getCurrentScreen());
+    console.log('Menu screen - Previous screen:', getPreviousScreen());
+  }, [navigationStack, getCurrentScreen, getPreviousScreen]);
+
   // Cleanup function to stop any animations when component unmounts
   useEffect(() => {
     return () => {
@@ -35,6 +42,12 @@ export default function MenuScreen() {
       // This ensures clean state when returning to the screen
     };
   }, []);
+
+  const handleBackPress = () => {
+    console.log('Menu back button pressed - going directly to home');
+    // Simple direct navigation to home
+    router.push('/(tabs)');
+  };
 
   const handleFeaturePress = (feature: string) => {
     if (feature === 'Notes') {
@@ -69,7 +82,7 @@ export default function MenuScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="My Tools" onBack={() => handleBack()} />
+      <TopBar title="My Tools" onBack={handleBackPress} />
 
       <View style={styles.menuGrid}>
         {menuOptions.map((option) => (
@@ -94,9 +107,9 @@ export default function MenuScreen() {
             <View><SmileIcon size={28} color={colors.icon} /></View>
             <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Mood Tracker</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.centerIconBtn} onPress={() => handleFeaturePress('Profile')}>
-            <View><ProfileIcon size={28} color={colors.icon} /></View>
-            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
+          <TouchableOpacity style={styles.centerIconBtn} onPress={() => router.push('/(tabs)')}>
+            <View><HomeIcon size={28} color={colors.icon} /></View>
+            <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>Home</Text>
           </TouchableOpacity>
         </View>
       </View>

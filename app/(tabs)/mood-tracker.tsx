@@ -1,12 +1,16 @@
-import { PopupBg } from '@/components/ui/PopupBg';
-import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import TopBar from '@/components/ui/TopBar';
-import { useThemeColors } from '@/hooks/useThemeColors';
-import { useViewport } from '@/hooks/useViewport';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, PanResponder, Platform, SafeAreaView, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import InfoModal from '@/components/ui/InfoModal';
+import TopBar from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
+import { useViewport } from '@/hooks/useViewport';
+import { MoodService } from '@/services/moodService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Animated, PanResponder, Platform } from 'react-native';
 
 
 const moodLevels = [
@@ -91,27 +95,23 @@ export default function MoodTrackerScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
+  const { session } = useAuth();
   const [mental, setMental] = useState(5);
   const [physical, setPhysical] = useState(5);
   const [showPopup, setShowPopup] = useState(false);
   const [suggestion, setSuggestion] = useState(null as null | { title: string; options: string[] });
+  const [showInfoModal, setShowInfoModal] = useState(false);
+  const [showSavedMessage, setShowSavedMessage] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const handleInfo = () => {
-    console.log('Info button pressed'); // Debug log
-    setTimeout(() => {
-      Alert.alert(
-        'Mood Tracker',
-        'Track your mental and physical energy levels to understand your patterns and get personalized suggestions. This helps you identify when you need support and when you\'re at your best.',
-        [{ text: 'OK' }]
-      );
-    }, 100);
+    setShowInfoModal(true);
   };
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
-    addToStack('mood-tracker');
-  }, [addToStack]);
+    // This functionality is now handled by the TopBar's onInfo prop
+  }, []);
 
   // Cleanup function to stop any animations when component unmounts
   useEffect(() => {
@@ -121,20 +121,78 @@ export default function MoodTrackerScreen() {
     };
   }, []);
 
-  const handleSubmit = () => {
-    const suggestion = getSuggestion(mental, physical);
-    if (suggestion) {
-      setSuggestion(suggestion);
-      setShowPopup(true);
-    } else {
-      // Save mood check (implement as needed)
-      router.back();
+  const handleSubmit = async () => {
+    if (!session?.user?.id) {
+      console.error('No user session found');
+      return;
+    }
+
+    setIsSaving(true);
+    
+    try {
+      // Save mood entry to database
+      const moodEntry = {
+        user_id: session.user.id,
+        timestamp: new Date().toISOString(),
+        mood_value: {
+          body: physical,
+          mind: mental,
+        },
+      };
+
+      const result = await MoodService.saveMoodEntry(moodEntry);
+      
+      if (result.success) {
+        console.log('✅ Mood entry saved successfully:', result.data);
+        
+        // Show saved message
+        setShowSavedMessage(true);
+        
+        // Hide the message after 2 seconds
+        setTimeout(() => {
+          setShowSavedMessage(false);
+        }, 2000);
+        
+        const suggestion = getSuggestion(mental, physical);
+        if (suggestion) {
+          setSuggestion(suggestion);
+          setShowPopup(true);
+        } else {
+          // Navigate back after a brief delay to show the saved message
+          setTimeout(() => {
+            router.back();
+          }, 2500);
+        }
+      } else {
+        console.error('❌ Failed to save mood entry:', result.error);
+        // Still show the suggestion popup even if saving failed
+        const suggestion = getSuggestion(mental, physical);
+        if (suggestion) {
+          setSuggestion(suggestion);
+          setShowPopup(true);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Exception saving mood entry:', error);
+      // Still show the suggestion popup even if saving failed
+      const suggestion = getSuggestion(mental, physical);
+      if (suggestion) {
+        setSuggestion(suggestion);
+        setShowPopup(true);
+      }
+    } finally {
+      setIsSaving(false);
     }
   };
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.background }}>
-      <TopBar title="Mood Tracker" onBack={() => handleBack()} onInfo={handleInfo} showSettings={true} />
+      <TopBar 
+        title="Mood Tracker" 
+        onBack={() => router.back()} 
+        showInfo={true}
+        onInfo={handleInfo} 
+      />
       <ScrollView contentContainerStyle={{ flexGrow: 1 }}>
         <View style={{ padding: 24 }}>
           <Text style={{ fontSize: 24, fontWeight: 'bold', color: colors.text, textAlign: 'center', marginBottom: 8 }}>Mood Tracker</Text>
@@ -159,7 +217,7 @@ export default function MoodTrackerScreen() {
 
           <TouchableOpacity
             style={{
-              backgroundColor: '#2563eb',
+              backgroundColor: colors.topBarBackground,
               borderRadius: 12,
               paddingVertical: 18,
               marginTop: 32,
@@ -169,57 +227,195 @@ export default function MoodTrackerScreen() {
               shadowOpacity: 0.08,
               shadowRadius: 4,
               elevation: 2,
+              opacity: isSaving ? 0.6 : 1,
             }}
             onPress={handleSubmit}
+            disabled={isSaving}
+            activeOpacity={0.8}
           >
-            <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>Submit Mood Check</Text>
+            <Text style={{
+              color: colors.background,
+              fontSize: 18,
+              fontWeight: '600',
+            }}>
+              {isSaving ? 'Saving...' : 'Submit Mood Check'}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Mood Insights Button */}
+          <TouchableOpacity
+            style={{
+              backgroundColor: colors.surface,
+              borderRadius: 12,
+              paddingVertical: 16,
+              marginTop: 16,
+              alignItems: 'center',
+              borderWidth: 1,
+              borderColor: colors.border,
+              shadowColor: '#000',
+              shadowOffset: { width: 0, height: 1 },
+              shadowOpacity: 0.05,
+              shadowRadius: 2,
+              elevation: 1,
+            }}
+            onPress={() => router.push('/insights')}
+            activeOpacity={0.8}
+          >
+            <Text style={{
+              color: colors.text,
+              fontSize: 16,
+              fontWeight: '600',
+            }}>
+              📊 View Mood Insights
+            </Text>
           </TouchableOpacity>
         </View>
       </ScrollView>
+      
+      {/* Floating Saved Message */}
+      {showSavedMessage && (
+        <View style={{
+          position: 'absolute',
+          top: 100,
+          left: 20,
+          right: 20,
+          backgroundColor: colors.topBarBackground,
+          borderRadius: 12,
+          paddingVertical: 16,
+          paddingHorizontal: 20,
+          alignItems: 'center',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 4 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 6,
+          zIndex: 999,
+        }}>
+          <Text style={{
+            color: colors.background,
+            fontSize: 16,
+            fontWeight: '600',
+          }}>
+            ✅ Mood Saved
+          </Text>
+        </View>
+      )}
+      
       {/* Suggestion Popup */}
-      <PopupBg
-        visible={showPopup}
-        onRequestClose={() => setShowPopup(false)}
-        size="medium"
-        color="#fff"
-        showSkip={true}
-        closeOnOutsideTap={true}
-        onSkip={() => setShowPopup(false)}
-      >
-        {/* Main Content Container - Child of PopupBg */}
-        <View style={[styles.popupContent, { width: '100%' }]}>
-          {/* Title Section - Child of Content */}
-          <View style={styles.popupTitleSection}>
-            <Text style={[styles.popupTitle, { 
+      {showPopup && suggestion && (
+        <View style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: 'rgba(0, 0, 0, 0.5)',
+          justifyContent: 'center',
+          alignItems: 'center',
+          zIndex: 1000,
+        }}>
+          <View style={{
+            backgroundColor: colors.surface,
+            borderRadius: 16,
+            padding: 24,
+            margin: 20,
+            alignItems: 'center',
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.25,
+            shadowRadius: 12,
+            elevation: 8,
+          }}>
+            <Text style={{
+              fontSize: 20,
+              fontWeight: 'bold',
               color: colors.text,
-              fontSize: getResponsiveSize(18, 20, 24)
-            }]}>
-              {suggestion?.title}
+              marginBottom: 16,
+              textAlign: 'center',
+            }}>
+              {suggestion.title}
             </Text>
-          </View>
-
-          {/* Options Section - Child of Content */}
-          <View style={styles.popupOptionsSection}>
-            {suggestion?.options.map(opt => (
-              <TouchableOpacity 
-                key={opt} 
-                style={[styles.suggestionButton, { 
-                  width: vw(80),
-                  paddingVertical: getResponsiveSize(10, 12, 14)
-                }]} 
-                onPress={() => setShowPopup(false)}
-              >
-                <Text style={[styles.suggestionButtonText, { 
-                  color: colors.primary,
-                  fontSize: getResponsiveSize(14, 16, 18)
-                }]}>
-                  {opt}
-                </Text>
-              </TouchableOpacity>
-            ))}
+            
+            <View style={{ marginBottom: 20 }}>
+              {suggestion.options.map((option, index) => (
+                <TouchableOpacity
+                  key={index}
+                  style={{
+                    backgroundColor: colors.topBarBackground,
+                    borderRadius: 8,
+                    paddingVertical: 12,
+                    paddingHorizontal: 20,
+                    marginVertical: 6,
+                    minWidth: 200,
+                    alignItems: 'center',
+                  }}
+                  onPress={() => {
+                    setShowPopup(false);
+                    // Navigate to the selected option
+                    if (option === 'Breathe With Me') {
+                      router.push('/(tabs)/breathe');
+                    } else if (option === 'Journal') {
+                      router.push('/(tabs)/quick-jot');
+                    } else if (option === 'Add a Core Memory') {
+                      router.push('/(tabs)/core-memory');
+                    }
+                  }}
+                >
+                  <Text style={{
+                    color: colors.background,
+                    fontWeight: '600',
+                    fontSize: 16,
+                  }}>
+                    {option}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            
+            <TouchableOpacity
+              style={{
+                paddingVertical: 12,
+                paddingHorizontal: 24,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: colors.border,
+              }}
+              onPress={() => setShowPopup(false)}
+            >
+              <Text style={{
+                color: colors.textSecondary,
+                fontWeight: '600',
+                fontSize: 16,
+              }}>
+                Close
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </PopupBg>
+      )}
+
+      {/* Info Modal */}
+      <InfoModal
+        visible={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        title="Mood Tracker Guide"
+        sections={[
+          {
+            title: "Purpose",
+            content: "The Mood Tracker helps you understand your energy levels and identify patterns. Mental Energy (0-10) reflects your mental focus and motivation, while Physical Energy (0-10) measures your physical stamina."
+          },
+          {
+            title: "How It Works",
+            content: "When you submit your mood, we'll analyze your scores and provide personalized suggestions for improvement. For example, if your Mental Energy is low and Physical Energy is high, we might suggest journaling to clear your mind."
+          }
+        ]}
+        tips={[
+          "Try to be as honest as possible with your ratings",
+          "Track your mood regularly to identify patterns",
+          "Use the suggestions to improve your energy levels"
+        ]}
+        description="This tool helps you become more aware of your daily energy patterns and provides actionable suggestions for improvement."
+      />
     </SafeAreaView>
   );
 }
@@ -411,7 +607,6 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   suggestionButton: {
-    backgroundColor: '#2563eb',
     borderRadius: 8,
     paddingVertical: 12,
     paddingHorizontal: 24,

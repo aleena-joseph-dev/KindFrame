@@ -31,7 +31,7 @@ interface TodoTask {
     emoji: string;
   };
   createdAt: Date;
-  priority?: 'low' | 'medium' | 'high';
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
   reminder?: Date;
   tags?: string[];
 }
@@ -479,17 +479,17 @@ export default function TodoScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}> 
-      <TopBar title="To-Do List" onBack={() => handleBack()} onInfo={() => {/* TODO: Show info modal */}} showSettings={true} />
+      <TopBar title="To-Do List" onBack={() => handleBack()} onInfo={() => {/* TODO: Show info modal */}} />
       {/* Top Buttons */}
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 20, paddingTop: 16, gap: 12 }}>
         <TouchableOpacity
-          style={{ backgroundColor: colors.buttonBackground, padding: 10, borderRadius: 8 }}
+          style={{ backgroundColor: colors.topBarBackground, padding: 10, borderRadius: 8 }}
           onPress={clearAllTasks}
         >
-          <Text style={{ color: colors.buttonText, fontWeight: '600' }}>Clear All</Text>
+          <Text style={{ color: colors.background, fontWeight: '600' }}>Clear All</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={{ backgroundColor: colors.buttonBackground, padding: 10, borderRadius: 8 }}
+          style={{ backgroundColor: colors.surface, padding: 10, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
           onPress={() => {
             const newHideCompleted = !hideCompleted;
             setHideCompleted(newHideCompleted);
@@ -497,7 +497,7 @@ export default function TodoScreen() {
             console.log('Tasks with completed=true:', tasks.filter(t => t.completed === true).length);
           }}
         >
-          <Text style={{ color: colors.buttonText, fontWeight: '600' }}>{hideCompleted ? 'Show Completed' : 'Hide Completed'}</Text>
+          <Text style={{ color: colors.text, fontWeight: '600' }}>{hideCompleted ? 'Show Completed' : 'Hide Completed'}</Text>
         </TouchableOpacity>
       </View>
       {/* Header */}
@@ -537,8 +537,8 @@ export default function TodoScreen() {
           <RefreshControl
             refreshing={refreshing}
             onRefresh={onRefresh}
-            colors={[colors.primary]}
-            tintColor={colors.primary}
+            colors={[colors.topBarBackground]}
+            tintColor={colors.topBarBackground}
           />
         }
         ListEmptyComponent={

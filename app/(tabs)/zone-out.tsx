@@ -3,6 +3,7 @@ import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
     Alert,
+    Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -11,11 +12,54 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { HeadphonesIcon } from '@/components/ui/HeadphonesIcon';
-import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import InfoModal from '@/components/ui/InfoModal';
 import TopBar from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
+
+// Custom SVG Icon Components
+const BookOpenIcon = ({ size = 24, color = '#000000' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"></path>
+    <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"></path>
+  </svg>
+);
+
+const WindIcon = ({ size = 24, color = '#000000' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2"></path>
+    <path d="M9.6 4.6A2 2 0 1 1 11 8H2"></path>
+    <path d="M12.6 19.4A2 2 0 1 0 14 16H2"></path>
+  </svg>
+);
+
+const HeartIcon = ({ size = 24, color = '#000000' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z"></path>
+  </svg>
+);
+
+const MusicIcon = ({ size = 24, color = '#000000' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9 18V5l12-2v13"></path>
+    <circle cx="6" cy="18" r="3"></circle>
+    <circle cx="18" cy="16" r="3"></circle>
+  </svg>
+);
+
+const BrainIcon = ({ size = 24, color = '#000000' }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"></path>
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"></path>
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4"></path>
+    <path d="M17.599 6.5a3 3 0 0 0 .399-1.375"></path>
+    <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5"></path>
+    <path d="M3.477 10.896a4 4 0 0 1 .585-.396"></path>
+    <path d="M19.938 10.5a4 4 0 0 1 .585.396"></path>
+    <path d="M6 18a4 4 0 0 1-1.967-.516"></path>
+    <path d="M19.967 17.484A4 4 0 0 1 18 18"></path>
+  </svg>
+);
 
 interface ZoneOutSession {
   id: string;
@@ -29,15 +73,16 @@ export default function ZoneOutScreen() {
   const router = useRouter();
   const { mode, colors } = useThemeColors();
   const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
   
   const [sessions, setSessions] = useState<ZoneOutSession[]>([]);
   const [selectedActivity, setSelectedActivity] = useState<string | null>(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
-    addToStack('zone-out');
-  }, [addToStack]);
+    // The usePreviousScreen hook is removed, so this line is removed.
+    // If navigation stack management is needed, it should be re-implemented.
+  }, []);
 
   useEffect(() => {
     loadSessions();
@@ -65,11 +110,7 @@ export default function ZoneOutScreen() {
   };
 
   const handleInfo = () => {
-    Alert.alert(
-      'Zone Out Area',
-      'A safe space for sensory regulation and mental decompression. Choose activities that help you find calm and focus. No pressure, no judgment - just what works for you.',
-      [{ text: 'OK' }]
-    );
+    setShowInfoModal(true);
   };
 
   const handleActivitySelect = (activity: string) => {
@@ -121,27 +162,9 @@ export default function ZoneOutScreen() {
     }, 2000);
   };
 
-  const getActivityColor = (activity: string) => {
-    switch (activity) {
-      case 'journal': return '#ff6b6b';
-      case 'breathing': return '#4ecdc4';
-      case 'memory': return '#ffa502';
-      case 'music': return '#45b7d1';
-      case 'meditation': return '#2ed573';
-      default: return colors.text;
-    }
-  };
 
-  const getActivityDescription = (activity: string) => {
-    switch (activity) {
-      case 'journal': return 'Write freely without judgment';
-      case 'breathing': return 'Guided breathing exercises';
-      case 'memory': return 'Relive positive moments';
-      case 'music': return 'Calming sounds and rhythms';
-      case 'meditation': return 'Mindful breathing focus';
-      default: return '';
-    }
-  };
+
+
 
   const activities = [
     { id: 'journal', title: 'Journal', description: 'Write freely without judgment' },
@@ -165,10 +188,41 @@ export default function ZoneOutScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Zone Out Area" onBack={() => handleBack()} onInfo={handleInfo} />
+      <TopBar 
+        title="Zone Out Area" 
+        onBack={() => router.back()} 
+        showInfo={true}
+        onInfo={handleInfo} 
+      />
 
       {/* Welcome Message */}
-      <View style={styles.welcomeContainer}>
+      <View style={[styles.welcomeContainer, { 
+        backgroundColor: Platform.OS === 'ios' ? 'rgba(139, 92, 246, 0.08)' : 'rgba(139, 92, 246, 0.05)',
+        borderWidth: 1,
+        borderColor: 'rgba(139, 92, 246, 0.1)'
+      }]}>
+        {/* Decorative background element */}
+        <View style={{
+          position: 'absolute',
+          top: -20,
+          right: -20,
+          width: 60,
+          height: 60,
+          borderRadius: 30,
+          backgroundColor: 'rgba(139, 92, 246, 0.1)',
+          opacity: 0.6,
+        }} />
+        <View style={{
+          position: 'absolute',
+          bottom: -15,
+          left: -15,
+          width: 40,
+          height: 40,
+          borderRadius: 20,
+          backgroundColor: 'rgba(139, 92, 246, 0.08)',
+          opacity: 0.4,
+        }} />
+        
         <Text style={[styles.welcomeTitle, { color: colors.text }]}>
           Find Your Calm
         </Text>
@@ -184,14 +238,24 @@ export default function ZoneOutScreen() {
             <TouchableOpacity
               key={activity.id}
               style={[styles.activityCard, { 
-                backgroundColor: colors.cardBackground,
-                borderColor: colors.border 
+                backgroundColor: Platform.OS === 'ios' ? 'rgba(255, 255, 255, 0.95)' : 'rgba(255, 255, 255, 0.9)',
+                borderWidth: 1,
+                borderColor: 'rgba(139, 92, 246, 0.1)'
               }]}
               onPress={() => handleActivitySelect(activity.id)}
+              activeOpacity={0.8}
             >
-              <View style={[styles.activityIcon, { backgroundColor: getActivityColor(activity.id) }]}>
-                <HeadphonesIcon size={32} color="#fff" />
-              </View>
+                              <View style={[styles.activityIcon, { 
+                  backgroundColor: colors.topBarBackground,
+                  borderWidth: 2,
+                  borderColor: `${colors.background}40`
+                }]}>
+                  {activity.id === 'journal' && <BookOpenIcon size={32} color={colors.background} />}
+                  {activity.id === 'breathing' && <WindIcon size={32} color={colors.background} />}
+                  {activity.id === 'memory' && <HeartIcon size={32} color={colors.background} />}
+                  {activity.id === 'music' && <MusicIcon size={32} color={colors.background} />}
+                  {activity.id === 'meditation' && <BrainIcon size={32} color={colors.background} />}
+                </View>
               <Text style={[styles.activityTitle, { color: colors.text }]}>
                 {activity.title}
               </Text>
@@ -204,7 +268,11 @@ export default function ZoneOutScreen() {
 
         {/* Today's Progress */}
         {todaySessions.length > 0 && (
-          <View style={[styles.progressContainer, { backgroundColor: colors.surface }]}>
+          <View style={[styles.progressContainer, { 
+            backgroundColor: Platform.OS === 'ios' ? 'rgba(16, 185, 129, 0.08)' : 'rgba(16, 185, 129, 0.05)',
+            borderWidth: 1,
+            borderColor: 'rgba(16, 185, 129, 0.1)'
+          }]}>
             <Text style={[styles.progressTitle, { color: colors.text }]}>
               Today's Sessions
             </Text>
@@ -230,7 +298,11 @@ export default function ZoneOutScreen() {
         )}
 
         {/* Tips Section */}
-        <View style={[styles.tipsContainer, { backgroundColor: colors.surface }]}>
+        <View style={[styles.tipsContainer, { 
+          backgroundColor: Platform.OS === 'ios' ? 'rgba(245, 158, 11, 0.08)' : 'rgba(245, 158, 11, 0.05)',
+          borderWidth: 1,
+          borderColor: 'rgba(245, 158, 11, 0.1)'
+        }]}>
           <Text style={[styles.tipsTitle, { color: colors.text }]}>
             Remember
           </Text>
@@ -250,6 +322,29 @@ export default function ZoneOutScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Info Modal */}
+      <InfoModal
+        visible={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        title="Zone Out Area Guide"
+        sections={[
+          {
+            title: "Purpose",
+            content: "The Zone Out Area is your safe space for sensory regulation and mental decompression. Choose activities that help you find calm and focus when you need a break."
+          },
+          {
+            title: "Available Activities",
+            content: "Journal for free writing, Breathing exercises for regulation, Core Memory for positive reflection, Music for auditory comfort, and Meditation for mindful focus."
+          }
+        ]}
+        tips={[
+          "Start with just a few minutes",
+          "You can stop anytime - no pressure", 
+          "What works today might be different tomorrow"
+        ]}
+        description="This space is designed to help you regulate your nervous system and find your center when you're feeling overwhelmed or need a mental break."
+      />
     </SafeAreaView>
   );
 }
@@ -261,19 +356,32 @@ const styles = StyleSheet.create({
   welcomeContainer: {
     paddingHorizontal: 20,
     paddingVertical: 24,
-    alignItems: 'center',
+    marginBottom: 16,
+    backgroundColor: 'rgba(139, 92, 246, 0.05)', // Light purple background
+    borderRadius: 16,
+    marginHorizontal: 20,
+    marginTop: 16,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+    position: 'relative',
+    overflow: 'hidden',
   },
   welcomeTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     marginBottom: 8,
     textAlign: 'center',
+    letterSpacing: 0.5,
   },
   welcomeText: {
     fontSize: 16,
     textAlign: 'center',
     lineHeight: 24,
     paddingHorizontal: 20,
+    opacity: 0.9,
   },
   activitiesContainer: {
     flex: 1,
@@ -288,36 +396,63 @@ const styles = StyleSheet.create({
   activityCard: {
     width: '48%',
     padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 16,
+    borderWidth: 0,
     alignItems: 'center',
     marginBottom: 16,
     minHeight: 140,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 12,
+    transform: [{ scale: 1 }],
+  },
+  activityCardPressed: {
+    transform: [{ scale: 0.98 }],
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 8,
   },
   activityIcon: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    transform: [{ scale: 1 }],
   },
   activityTitle: {
     fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 4,
+    fontWeight: '700',
+    marginBottom: 6,
     textAlign: 'center',
+    letterSpacing: 0.3,
   },
   activityDescription: {
     fontSize: 12,
     textAlign: 'center',
     lineHeight: 16,
+    fontWeight: '500',
+    opacity: 0.8,
   },
   progressContainer: {
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 0,
     marginBottom: 24,
+    shadowColor: '#10B981',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   progressTitle: {
     fontSize: 18,
@@ -342,10 +477,15 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   tipsContainer: {
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
+    padding: 24,
+    borderRadius: 16,
+    borderWidth: 0,
     marginBottom: 24,
+    shadowColor: '#F59E0B',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
   },
   tipsTitle: {
     fontSize: 18,
@@ -360,5 +500,25 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: 8,
+  },
+  popupContent: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  popupTitle: {
+    fontWeight: 'bold',
+    marginBottom: 10,
+  },
+  suggestionButton: {
+    backgroundColor: '#2563eb',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  suggestionButtonText: {
+    color: '#fff',
+    fontWeight: '600',
   },
 }); 

@@ -9,14 +9,14 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  Modal,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    Modal,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -134,7 +134,8 @@ export default function NotesScreen() {
   useEffect(() => {
     if (isGoogleKeepConnected) {
       loadSyncedKeepNotes();
-      setShowSyncSuccess(true);
+      // Don't show success banner just for detecting connection
+      // Only show it when actual sync completes
     }
   }, [isGoogleKeepConnected]);
 
@@ -205,43 +206,58 @@ export default function NotesScreen() {
 
   const fetchGoogleKeepNotes = async () => {
     try {
+      console.log('🔄 fetchGoogleKeepNotes: Starting...');
       setIsLoading(true);
       
       // Use AuthService to fetch Google Keep notes
+      console.log('🔄 fetchGoogleKeepNotes: Calling AuthService.fetchGoogleKeepNotes...');
       const notes = await AuthService.fetchGoogleKeepNotes();
+      console.log('🔄 fetchGoogleKeepNotes: Got notes from AuthService:', notes?.length || 0);
       
       setGoogleKeepNotes(notes);
       
       // Sync notes to database using DataService
       try {
+        console.log('🔄 fetchGoogleKeepNotes: Calling DataService.syncGoogleKeepNotes...');
         const syncResult = await DataService.syncGoogleKeepNotes(notes);
+        console.log('🔄 fetchGoogleKeepNotes: Sync result:', syncResult);
         if (syncResult.success) {
           const syncedNotes = syncResult.data as DatabaseNote[];
+          console.log('🔄 fetchGoogleKeepNotes: Synced notes to database:', syncedNotes?.length || 0);
           // Reload notes from database to show synced notes
           await loadNotes();
+          // Show success banner only when actual sync completes
+          setShowSyncSuccess(true);
         }
       } catch (syncError) {
+        console.log('❌ fetchGoogleKeepNotes: Sync error:', syncError);
         // Handle sync error silently
       }
     } catch (error) {
+      console.log('❌ fetchGoogleKeepNotes: Main error:', error);
       setGoogleKeepNotes([]);
       
       // If the API call fails, it might mean the token is invalid
       // Check if the error is related to authentication
       if (error.message && error.message.includes('No Google access token found')) {
+        console.log('❌ fetchGoogleKeepNotes: No Google access token found');
         setIsGoogleKeepConnected(false);
         // Clear the invalid token
         localStorage.removeItem('google_keep_token');
       }
     } finally {
       setIsLoading(false);
+      console.log('🔄 fetchGoogleKeepNotes: Completed');
     }
   };
 
   const handleGoogleKeepSync = () => {
     if (isGoogleKeepConnected) {
-      // Google Keep already connected
+      // If already connected, perform actual sync
+      console.log('🔄 Google Keep already connected, performing sync...');
+      fetchGoogleKeepNotes();
     } else {
+      console.log('🔄 Google Keep not connected, showing sync modal...');
       setShowGoogleKeepSync(true);
     }
   };
@@ -263,6 +279,9 @@ export default function NotesScreen() {
       
       // Also reload local notes from database
       await loadNotes();
+      
+      // Show success banner when refresh completes
+      setShowSyncSuccess(true);
     } catch (error) {
       // Handle error silently
     } finally {
@@ -544,187 +563,201 @@ export default function NotesScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar 
-        title="Notes" 
+      <TopBar
+        title="Notes"
         onBack={() => {
           handleBack('menu');
         }} 
-        showSettings={true}
         syncButton={{
-          label: "Sync Keep",
+          label: "Sync",
           onPress: handleGoogleKeepSync,
           isConnected: isGoogleKeepConnected
         }}
       />
       
-
-      
-      {/* Sync Success Banner */}
-      {showSyncSuccess && (
-        <View style={[styles.successBanner, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.successText, { color: colors.background }]}>
-            ✅ Google Keep synced successfully! Your notes are now available.
-          </Text>
-          <TouchableOpacity 
-            onPress={() => setShowSyncSuccess(false)}
-            style={styles.closeButton}
-          >
-            <Text style={[styles.closeButtonText, { color: colors.background }]}>×</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Search Bar */}
-      <View style={styles.searchContainer}>
-        <TextInput
-          style={[styles.searchInput, { 
-            backgroundColor: colors.surface,
-            color: colors.text,
-            borderColor: colors.border 
-          }]}
-          placeholder="Search notes..."
-          placeholderTextColor={colors.textSecondary}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
-
-      {/* Category Filter */}
       <ScrollView 
-        horizontal 
-        showsHorizontalScrollIndicator={false}
-        style={styles.categoryContainer}
-        contentContainerStyle={styles.categoryContent}
+        style={styles.mainScrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
       >
-        {categories.map((category) => (
-          <TouchableOpacity
-            key={category.id}
-            style={[
-              styles.categoryButton,
-              { 
-                backgroundColor: selectedCategory === category.id ? category.color : colors.surface,
-                borderColor: colors.border 
-              }
-            ]}
-            onPress={() => setSelectedCategory(category.id)}
-          >
-            <Text style={[
-              styles.categoryButtonText,
-              { color: selectedCategory === category.id ? '#fff' : colors.text }
-            ]}>
-              {category.name}
+        {/* Sync Success Banner */}
+        {showSyncSuccess && (
+          <View style={[styles.successBanner, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.successText, { color: colors.background }]}>
+              ✅ Google Keep synced successfully! Your notes are now available.
             </Text>
-          </TouchableOpacity>
-        ))}
-      </ScrollView>
-
-      {/* Google Keep Notes Section */}
-      {isGoogleKeepConnected && (
-        <View style={styles.googleKeepSection}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.googleKeepSectionTitle, { color: colors.text }]}>Google Keep Notes</Text>
-            <TouchableOpacity
-              style={[styles.syncButton, { backgroundColor: colors.primary }]}
-              onPress={fetchGoogleKeepNotes}
+            <TouchableOpacity 
+              onPress={() => setShowSyncSuccess(false)}
+              style={styles.closeButton}
             >
-              <Text style={[styles.syncButtonText, { color: colors.background }]}>
-                {isLoading ? 'Syncing...' : 'Sync'}
-              </Text>
+              <Text style={[styles.successCloseButtonText, { color: colors.background }]}>×</Text>
             </TouchableOpacity>
           </View>
-          
-          {isLoading ? (
-            <View style={styles.loadingContainer}>
-              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading notes...</Text>
-            </View>
-          ) : googleKeepNotes.length > 0 ? (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.googleKeepNotesContainer}>
-              {googleKeepNotes.map((note) => (
-                <View key={note.id} style={[styles.googleKeepNoteCard, { backgroundColor: colors.surface }]}>
-                  <Text style={[styles.googleKeepNoteTitle, { color: colors.text }]}>
-                    {note.title || 'Untitled Note'}
-                  </Text>
-                  <Text style={[styles.googleKeepNoteContent, { color: colors.textSecondary }]} numberOfLines={3}>
-                    {formatNoteContent(note)}
-                  </Text>
-                  <Text style={[styles.googleKeepNoteDate, { color: colors.textSecondary }]}>
-                    {formatNoteDate(note.userEditedTimestampUsec)}
-                  </Text>
-                  {note.labels && note.labels.length > 0 && (
-                    <View style={styles.labelsContainer}>
-                      {note.labels.map((label) => (
-                        <Text key={label.name} style={[styles.label, { backgroundColor: colors.primary + '20', color: colors.primary }]}>
-                          {label.name}
-                        </Text>
-                      ))}
-                    </View>
-                  )}
-                </View>
-              ))}
-            </ScrollView>
-          ) : (
-            <Text style={[styles.noNotesText, { color: colors.textSecondary }]}>No Google Keep notes found</Text>
-          )}
-        </View>
-      )}
-
-      {/* Add Note Button */}
-      <View style={styles.addButtonContainer}>
-        <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
-          onPress={() => setShowAddNote(true)}
-        >
-          <Text style={[styles.addButtonText, { color: colors.buttonText }]}>+ New Note</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Local Notes Section */}
-      <View style={styles.localNotesSection}>
-        <Text style={[styles.googleKeepSectionTitle, { color: colors.text }]}>Local Notes</Text>
-        
-        {/* Notes List */}
-      <ScrollView style={styles.notesContainer} showsVerticalScrollIndicator={false}>
-        {filteredNotes.length === 0 ? (
-          <View style={styles.emptyState}>
-            <NotesIcon size={64} color={colors.textSecondary} />
-            <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>
-              {searchQuery.trim() ? 'No notes found matching your search.' : 'No notes yet. Create your first note!'}
-            </Text>
-          </View>
-        ) : (
-          filteredNotes.map((note) => (
-            <TouchableOpacity
-              key={note.id}
-              style={[styles.noteCard, { 
-                backgroundColor: colors.cardBackground,
-                borderColor: colors.border 
-              }]}
-              onPress={() => setSelectedNote(note)}
-            >
-              <View style={styles.noteHeader}>
-                <View style={[styles.categoryIndicator, { backgroundColor: getCategoryColor(note.category) }]} />
-                <Text style={[styles.noteTitle, { color: colors.text }]}>
-                  {note.title}
-                </Text>
-                <Text style={[styles.noteDate, { color: colors.textSecondary }]}>
-                  {new Date(note.updatedAt).toLocaleDateString()}
-                </Text>
-              </View>
-              
-              <Text style={[styles.notePreview, { color: colors.textSecondary }]}>
-                {note.content.length > 100 ? `${note.content.substring(0, 100)}...` : note.content}
-              </Text>
-              
-              <View style={styles.noteMeta}>
-                <Text style={[styles.noteCategory, { color: getCategoryColor(note.category) }]}>
-                  {note.category}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          ))
         )}
+
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <TextInput
+            style={[styles.searchInput, { 
+              backgroundColor: colors.surface,
+              color: colors.text,
+              borderColor: colors.border 
+            }]}
+            placeholder="Search notes..."
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
+
+        {/* Category Filter */}
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false}
+          style={styles.categoryContainer}
+          contentContainerStyle={styles.categoryContent}
+        >
+          {categories.map((category) => (
+            <TouchableOpacity
+              key={category.id}
+              style={[
+                styles.categoryButton,
+                { 
+                  backgroundColor: selectedCategory === category.id ? colors.topBarBackground : colors.surface,
+                  borderColor: colors.border,
+                  borderRadius: 6,
+                  minHeight: 36,
+                  maxHeight: 36
+                }
+              ]}
+              onPress={() => setSelectedCategory(category.id)}
+            >
+              <Text style={[
+                styles.categoryButtonText,
+                { color: selectedCategory === category.id ? colors.background : colors.text }
+              ]}>
+                {category.name}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {/* New Note Button - Prominent and Centered */}
+        <View style={styles.addButtonContainer}>
+          <TouchableOpacity
+            style={[styles.addButton, { backgroundColor: colors.topBarBackground }]}
+            onPress={() => setShowAddNote(true)}
+          >
+            <View style={styles.addButtonContent}>
+              <Text style={[styles.addButtonIcon, { color: colors.background }]}>+</Text>
+              <Text style={[styles.addButtonText, { color: colors.background }]}>New Note</Text>
+            </View>
+          </TouchableOpacity>
+        </View>
+
+        {/* Google Keep Notes Section */}
+        {isGoogleKeepConnected && (
+          <View style={styles.googleKeepSection}>
+            <View style={styles.sectionHeader}>
+              <Text style={[styles.sectionTitle, { color: colors.text }]}>Google Keep Notes</Text>
+              <TouchableOpacity
+                style={[styles.syncButton, { backgroundColor: colors.topBarBackground }]}
+                onPress={fetchGoogleKeepNotes}
+              >
+                <Text style={[styles.syncButtonText, { color: colors.background }]}>
+                  {isLoading ? 'Syncing...' : 'Sync'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading notes...</Text>
+              </View>
+            ) : googleKeepNotes.length > 0 ? (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.googleKeepNotesContainer}>
+                {googleKeepNotes.map((note) => (
+                  <View key={note.id} style={[styles.googleKeepNoteCard, { backgroundColor: colors.surface }]}>
+                    <Text style={[styles.googleKeepNoteTitle, { color: colors.text }]}>
+                      {note.title || 'Untitled Note'}
+                    </Text>
+                    <Text style={[styles.googleKeepNoteContent, { color: colors.textSecondary }]} numberOfLines={3}>
+                      {formatNoteContent(note)}
+                    </Text>
+                    <Text style={[styles.googleKeepNoteDate, { color: colors.textSecondary }]}>
+                      {formatNoteDate(note.userEditedTimestampUsec)}
+                    </Text>
+                    {note.labels && note.labels.length > 0 && (
+                      <View style={styles.labelsContainer}>
+                        {note.labels.map((label) => (
+                          <Text key={label.name} style={[styles.label, { backgroundColor: colors.topBarBackground + '20', color: colors.topBarBackground }]}>
+                            {label.name}
+                          </Text>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                ))}
+              </ScrollView>
+            ) : (
+              <Text style={[styles.noNotesText, { color: colors.textSecondary }]}>No Google Keep notes found</Text>
+            )}
+          </View>
+        )}
+
+        {/* Local Notes Section */}
+        <View style={styles.localNotesSection}>
+          <Text style={[styles.sectionTitle, { color: colors.text }]}>Local Notes</Text>
+          
+          {/* Notes List */}
+          <View style={styles.notesContainer}>
+            {filteredNotes.length === 0 ? (
+              <View style={styles.emptyState}>
+                <NotesIcon size={64} color={colors.textSecondary} />
+                <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>
+                  {searchQuery.trim() ? 'No notes found matching your search.' : 'No notes yet. Create your first note!'}
+                </Text>
+              </View>
+            ) : (
+              filteredNotes.map((note) => (
+                <TouchableOpacity
+                  key={note.id}
+                  style={[styles.noteCard, { 
+                    backgroundColor: colors.surface,
+                    borderColor: colors.border 
+                  }]}
+                  onPress={() => setSelectedNote(note)}
+                >
+                  <View style={styles.noteHeader}>
+                    <View style={[styles.categoryIndicator, { backgroundColor: colors.topBarBackground }]} />
+                    <Text style={[styles.noteTitle, { color: colors.text }]}>
+                      {note.title}
+                    </Text>
+                    <Text style={[styles.noteDate, { color: colors.textSecondary }]}>
+                      {new Date(note.updatedAt).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  
+                  <Text style={[styles.notePreview, { color: colors.textSecondary }]}>
+                    {note.content.length > 100 ? `${note.content.substring(0, 100)}...` : note.content}
+                  </Text>
+                  
+                  <View style={styles.noteMeta}>
+                    <View style={[styles.noteCategory, { backgroundColor: colors.topBarBackground + '20' }]}>
+                      <Text style={[styles.noteCategoryText, { color: colors.topBarBackground }]}>
+                        {note.category.toUpperCase()}
+                      </Text>
+                    </View>
+                    <TouchableOpacity style={styles.noteOptions}>
+                      <Text style={[styles.noteOptionsText, { color: colors.textSecondary }]}>⋯</Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableOpacity>
+              ))
+            )}
+          </View>
+        </View>
       </ScrollView>
-      </View>
 
       {/* Google Keep Sync Modal */}
       {showGoogleKeepSync && (
@@ -737,10 +770,10 @@ export default function NotesScreen() {
             
             <View style={styles.modalActions}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.existingConnectButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.existingConnectButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleConnectGoogleKeep}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Connect</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Connect</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -798,7 +831,7 @@ export default function NotesScreen() {
                     style={[
                       styles.categoryButton,
                       { 
-                        backgroundColor: newNoteCategory === category ? getCategoryColor(category) : colors.cardBackground,
+                        backgroundColor: newNoteCategory === category ? colors.topBarBackground : colors.cardBackground,
                         borderColor: colors.border 
                       }
                     ]}
@@ -806,7 +839,7 @@ export default function NotesScreen() {
                   >
                     <Text style={[
                       styles.categoryButtonText,
-                      { color: newNoteCategory === category ? '#fff' : colors.text }
+                      { color: newNoteCategory === category ? colors.background : colors.text }
                     ]}>
                       {category.charAt(0).toUpperCase() + category.slice(1)}
                     </Text>
@@ -824,10 +857,10 @@ export default function NotesScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.addNoteButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.addNoteButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleAddNote}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Create Note</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Create Note</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -884,10 +917,10 @@ export default function NotesScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.saveButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.saveButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={() => handleUpdateNote(selectedNote.id, selectedNote.title, selectedNote.content)}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Save Changes</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Save Changes</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -960,20 +993,28 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  mainScrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
   searchContainer: {
     paddingHorizontal: 20,
     paddingVertical: 16,
   },
   searchInput: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 12,
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 14,
     fontSize: 16,
+    backgroundColor: '#f8f9fa',
+    borderColor: '#e9ecef',
   },
   categoryContainer: {
     paddingHorizontal: 20,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   categoryContent: {
     paddingRight: 20,
@@ -981,62 +1022,100 @@ const styles = StyleSheet.create({
   categoryButton: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: 6,
     borderWidth: 1,
-    marginRight: 8,
+    marginRight: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+    minHeight: 36,
+    maxHeight: 36,
   },
   categoryButtonText: {
     fontSize: 14,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   addButtonContainer: {
     paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  addButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 8,
+    paddingVertical: 20,
     alignItems: 'center',
   },
+  addButton: {
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 6,
+    minWidth: 200,
+  },
+  addButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  addButtonIcon: {
+    fontSize: 24,
+    marginRight: 12,
+    fontWeight: 'bold',
+  },
   addButtonText: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
+  },
+  localNotesSection: {
+    paddingHorizontal: 20,
+    flex: 1,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 16,
   },
   notesContainer: {
     flex: 1,
-    paddingHorizontal: 20,
   },
   noteCard: {
-    marginBottom: 12,
-    padding: 16,
     borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
     borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
   },
   noteHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
+    alignItems: 'flex-start',
+    marginBottom: 12,
   },
   categoryIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+    marginTop: 4,
   },
   noteTitle: {
-    fontSize: 16,
-    fontWeight: '600',
+    fontSize: 18,
+    fontWeight: '700',
     flex: 1,
+    marginRight: 12,
   },
   noteDate: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '500',
   },
   notePreview: {
-    fontSize: 14,
-    marginBottom: 8,
-    lineHeight: 20,
+    fontSize: 15,
+    lineHeight: 22,
+    marginBottom: 16,
   },
   noteMeta: {
     flexDirection: 'row',
@@ -1044,20 +1123,129 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   noteCategory: {
-    fontSize: 12,
-    fontWeight: '600',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  noteCategoryText: {
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  noteOptions: {
+    padding: 8,
+  },
+  noteOptionsText: {
+    fontSize: 20,
+    fontWeight: 'bold',
   },
   emptyState: {
     alignItems: 'center',
-    justifyContent: 'center',
     paddingVertical: 60,
   },
   emptyStateText: {
     fontSize: 16,
     textAlign: 'center',
     marginTop: 16,
-    paddingHorizontal: 40,
+    lineHeight: 24,
+  },
+  successBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    marginHorizontal: 20,
+    marginTop: 16,
+    borderRadius: 8,
+  },
+  successText: {
+    fontSize: 14,
+    fontWeight: '500',
+    flex: 1,
+  },
+  successCloseButtonText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+  },
+  googleKeepSection: {
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  syncButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  syncButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  googleKeepNotesContainer: {
+    marginBottom: 16,
+  },
+  googleKeepNoteCard: {
+    width: 200,
+    padding: 16,
+    marginRight: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e9ecef',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  googleKeepNoteTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#1f2937',
+  },
+  googleKeepNoteContent: {
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: 12,
+    color: '#6b7280',
+  },
+  googleKeepNoteDate: {
+    fontSize: 12,
+    color: '#9ca3af',
+    marginBottom: 12,
+  },
+  labelsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  label: {
+    fontSize: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    fontWeight: '600',
+  },
+  noNotesText: {
+    fontSize: 14,
+    textAlign: 'center',
+    color: '#6b7280',
+    fontStyle: 'italic',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    paddingVertical: 20,
+  },
+  loadingText: {
+    fontSize: 14,
+    color: '#6b7280',
   },
   modalOverlay: {
     position: 'absolute',
@@ -1070,23 +1258,28 @@ const styles = StyleSheet.create({
     zIndex: 1000,
   },
   modalContent: {
-    width: '90%',
-    maxWidth: 400,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
     padding: 24,
-    borderRadius: 12,
-    borderWidth: 1,
-    maxHeight: '80%',
+    margin: 20,
+    width: '90%',
+    maxWidth: 500,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
   modalHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: 20,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    flex: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#1f2937',
   },
   closeButton: {
     width: 32,
@@ -1097,51 +1290,59 @@ const styles = StyleSheet.create({
   closeButtonText: {
     fontSize: 24,
     fontWeight: 'bold',
+    color: '#6b7280',
   },
   input: {
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 16,
     paddingVertical: 12,
-    marginBottom: 16,
     fontSize: 16,
+    marginBottom: 16,
+    backgroundColor: '#f8f9fa',
+    borderColor: '#e9ecef',
   },
   textArea: {
-    height: 120,
+    minHeight: 120,
     textAlignVertical: 'top',
   },
   categoryLabel: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 8,
+    marginBottom: 12,
+    color: '#1f2937',
   },
   categoryButtons: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
+    gap: 8,
   },
   modalActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 12,
   },
   modalButton: {
     flex: 1,
     paddingVertical: 12,
+    paddingHorizontal: 20,
     borderRadius: 8,
     alignItems: 'center',
-    marginHorizontal: 4,
+    borderWidth: 1,
   },
   cancelButton: {
-    borderWidth: 1,
+    backgroundColor: '#ffffff',
+    borderColor: '#d1d5db',
   },
   addNoteButton: {
-    marginLeft: 8,
+    backgroundColor: '#3b82f6',
   },
   deleteButton: {
-    borderWidth: 1,
+    backgroundColor: '#ffffff',
+    borderColor: '#ef4444',
   },
   saveButton: {
-    marginLeft: 8,
+    backgroundColor: '#10b981',
   },
   modalButtonText: {
     fontSize: 16,
@@ -1149,36 +1350,21 @@ const styles = StyleSheet.create({
   },
   existingModalDescription: {
     fontSize: 16,
-    textAlign: 'center',
+    lineHeight: 24,
     marginBottom: 24,
-    lineHeight: 22,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   existingConnectButton: {
-    flex: 1,
+    backgroundColor: '#3b82f6',
   },
   laterButton: {
-    flex: 1,
-    borderWidth: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#ffffff',
+    borderColor: '#d1d5db',
   },
-  successBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    marginHorizontal: 16,
-    marginTop: 8,
-    borderRadius: 8,
-  },
-  successText: {
-    flex: 1,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-
   googleKeepModalContainer: {
     flex: 1,
-    backgroundColor: '#e0e5de',
+    backgroundColor: '#ffffff',
   },
   googleKeepModalHeader: {
     flexDirection: 'row',
@@ -1186,108 +1372,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     borderBottomWidth: 1,
-    borderBottomColor: '#d1d5db',
+    borderBottomColor: '#e9ecef',
   },
   googleKeepModalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#2c3e50',
+    fontWeight: '600',
+    color: '#1f2937',
   },
   googleKeepCloseButton: {
-    backgroundColor: 'transparent',
-    padding: 8,
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
   },
   googleKeepModalContent: {
-    flex: 1,
     padding: 20,
-    justifyContent: 'center',
+    alignItems: 'center',
   },
   googleKeepModalDescription: {
     fontSize: 16,
-    color: '#7f8c8d',
-    textAlign: 'center',
-    marginBottom: 30,
     lineHeight: 24,
+    textAlign: 'center',
+    marginBottom: 24,
+    color: '#6b7280',
   },
   googleKeepConnectButton: {
-    backgroundColor: '#4285f4',
-    paddingVertical: 16,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  // Google Keep Notes Section Styles
-  googleKeepSection: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  googleKeepSectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-  },
-  syncButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
-  },
-  syncButtonText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    paddingVertical: 20,
-  },
-  loadingText: {
-    fontSize: 14,
-  },
-  googleKeepNotesContainer: {
-    marginBottom: 8,
-  },
-  googleKeepNoteCard: {
-    width: 200,
-    marginRight: 12,
-    padding: 12,
+    backgroundColor: '#3b82f6',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
     borderRadius: 8,
-    borderWidth: 1,
   },
-  googleKeepNoteTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 8,
-  },
-  googleKeepNoteContent: {
-    fontSize: 14,
-    marginBottom: 8,
-    lineHeight: 18,
-  },
-  googleKeepNoteDate: {
-    fontSize: 12,
-    marginBottom: 8,
-  },
-  labelsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 4,
-  },
-  label: {
-    fontSize: 10,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  noNotesText: {
-    textAlign: 'center',
-    paddingVertical: 20,
-    fontSize: 14,
-  },
-  localNotesSection: {
-    flex: 1,
-  },
-
 }); 

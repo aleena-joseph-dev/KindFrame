@@ -258,19 +258,8 @@ export default function TodaysFocusScreen() {
   };
 
   const getTagColor = (tag: string): string => {
-    const colorMap: { [key: string]: string } = {
-      'Work': '#8b5cf6',
-      'Personal': '#3b82f6',
-      'Health': '#ef4444',
-      'Wellness': '#f59e0b',
-      'Goal': '#10b981',
-      'Task': '#6b7280',
-      'Note': '#8b5cf6',
-      'Memory': '#ec4899',
-      'Meeting': '#f59e0b',
-      'Project': '#8b5cf6',
-    };
-    return colorMap[tag] || '#6b7280';
+    // Use mode selection color palette for all tags
+    return colors.topBarBackground;
   };
 
   const formatTime = (dateString: string): string => {
@@ -372,16 +361,8 @@ export default function TodaysFocusScreen() {
   };
 
   const getPriorityColor = (priority: TodaysTask['priority']) => {
-    switch (priority) {
-      case 'high':
-        return '#ef4444';
-      case 'medium':
-        return '#f59e0b';
-      case 'low':
-        return '#10b981';
-      default:
-        return colors.textSecondary;
-    }
+    // Use mode selection color palette for all priorities
+    return colors.topBarBackground;
   };
 
   const formatDuration = (minutes?: number) => {
@@ -575,10 +556,10 @@ export default function TodaysFocusScreen() {
 
             {/* Delete Button */}
             <TouchableOpacity
-              style={[styles.actionButton, { backgroundColor: '#fef2f2' }]}
+              style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
               onPress={() => handleDeleteTask(task.id)}
             >
-              <Text style={[styles.actionButtonText, { color: '#ef4444' }]}>×</Text>
+              <Text style={[styles.actionButtonText, { color: colors.text }]}>×</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -625,10 +606,10 @@ export default function TodaysFocusScreen() {
                 No tasks for today. Add some to get started!
               </Text>
               <TouchableOpacity 
-                style={[styles.addTaskButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                style={[styles.addTaskButton, { backgroundColor: colors.topBarBackground, borderColor: colors.topBarBackground }]}
                 onPress={handleAddNewTask}
               >
-                <Text style={[styles.addTaskText, { color: colors.buttonText }]}>+ Add Your First Task</Text>
+                <Text style={[styles.addTaskText, { color: colors.background }]}>+ Add Your First Task</Text>
               </TouchableOpacity>
             </View>
           ) : (

@@ -69,79 +69,79 @@ export const PreviousScreenProvider: React.FC<{ children: React.ReactNode }> = (
     console.log('handleBack called with defaultFallback:', defaultFallback);
     console.log('Current stack before removal:', navigationStack);
     
-    setNavigationStack(prev => {
-      console.log('Current stack in setState:', prev);
-      if (prev.length === 0) {
-        console.log('Stack is empty, using default fallback');
-        // If stack is empty, use default fallback
-        if (defaultFallback === 'home') {
-          router.push('/(tabs)');
-        } else {
-          router.push('/menu');
-        }
-        return prev;
-      }
-      
-      const newStack = [...prev];
-      const removedScreen = newStack.pop();
-      console.log('Removed screen:', removedScreen);
-      console.log('New stack after removal:', newStack);
-      
-      // Determine where to navigate based on the new top of stack
-      const newCurrentScreen = newStack.length > 0 ? newStack[newStack.length - 1] : null;
-      console.log('New current screen after removal:', newCurrentScreen);
-      
-      if (newCurrentScreen === 'home') {
-        console.log('Navigating to home');
+    if (navigationStack.length === 0) {
+      console.log('Stack is empty, using default fallback');
+      // If stack is empty, use default fallback
+      if (defaultFallback === 'home') {
         router.push('/(tabs)');
-      } else if (newCurrentScreen === 'menu') {
-        console.log('Navigating to menu');
-        router.push('/menu');
-      } else if (newCurrentScreen === 'zone-out') {
-        console.log('Navigating to zone-out');
-        router.push('/(tabs)/zone-out');
-      } else if (newCurrentScreen === 'breathe') {
-        console.log('Navigating to breathe');
-        router.push('/(tabs)/breathe');
-      } else if (newCurrentScreen === 'todo') {
-        console.log('Navigating to todo');
-        router.push('/(tabs)/todo');
-      } else if (newCurrentScreen === 'calendar') {
-        console.log('Navigating to calendar');
-        router.push('/(tabs)/calendar');
-      } else if (newCurrentScreen === 'pomodoro') {
-        console.log('Navigating to pomodoro');
-        router.push('/(tabs)/pomodoro');
-      } else if (newCurrentScreen === 'todo-review') {
-        console.log('Navigating to todo-review');
-        router.push('/(tabs)/todo-review');
-      } else if (newCurrentScreen === 'kanban') {
-        console.log('Navigating to kanban');
-        router.push('/(tabs)/kanban');
-      } else if (newCurrentScreen === 'goals') {
-        console.log('Navigating to goals');
-        router.push('/(tabs)/goals');
-      } else if (newCurrentScreen === 'mood-tracker') {
-        console.log('Navigating to mood-tracker');
-        router.push('/(tabs)/mood-tracker');
-      } else if (newCurrentScreen === 'quick-jot') {
-        console.log('Navigating to quick-jot');
-        router.push('/(tabs)/quick-jot');
-      } else if (newCurrentScreen === 'notes') {
-        console.log('Navigating to notes');
-        router.push('/(tabs)/notes');
       } else {
-        // If no screen in stack or current screen was the only one, use default fallback
-        console.log('Using default fallback:', defaultFallback);
-        if (defaultFallback === 'home') {
-          router.push('/(tabs)');
-        } else {
-          router.push('/menu');
-        }
+        router.push('/menu');
       }
-      
-      return newStack;
-    });
+      return;
+    }
+    
+    // Create a copy of the current stack
+    const currentStack = [...navigationStack];
+    const removedScreen = currentStack.pop();
+    console.log('Removed screen:', removedScreen);
+    console.log('New stack after removal:', currentStack);
+    
+    // Update the stack state
+    setNavigationStack(currentStack);
+    
+    // Determine where to navigate based on the new top of stack
+    const newCurrentScreen = currentStack.length > 0 ? currentStack[currentStack.length - 1] : null;
+    console.log('New current screen after removal:', newCurrentScreen);
+    
+    // Navigate based on the new current screen
+    if (newCurrentScreen === 'home') {
+      console.log('Navigating to home');
+      router.push('/(tabs)');
+    } else if (newCurrentScreen === 'menu') {
+      console.log('Navigating to menu');
+      router.push('/menu');
+    } else if (newCurrentScreen === 'zone-out') {
+      console.log('Navigating to zone-out');
+      router.push('/(tabs)/zone-out');
+    } else if (newCurrentScreen === 'breathe') {
+      console.log('Navigating to breathe');
+      router.push('/(tabs)/breathe');
+    } else if (newCurrentScreen === 'todo') {
+      console.log('Navigating to todo');
+      router.push('/(tabs)/todo');
+    } else if (newCurrentScreen === 'calendar') {
+      console.log('Navigating to calendar');
+      router.push('/(tabs)/calendar');
+    } else if (newCurrentScreen === 'pomodoro') {
+      console.log('Navigating to pomodoro');
+      router.push('/(tabs)/pomodoro');
+    } else if (newCurrentScreen === 'todo-review') {
+      console.log('Navigating to todo-review');
+      router.push('/(tabs)/todo-review');
+    } else if (newCurrentScreen === 'kanban') {
+      console.log('Navigating to kanban');
+      router.push('/(tabs)/kanban');
+    } else if (newCurrentScreen === 'goals') {
+      console.log('Navigating to goals');
+      router.push('/(tabs)/goals');
+    } else if (newCurrentScreen === 'mood-tracker') {
+      console.log('Navigating to mood-tracker');
+      router.push('/(tabs)/mood-tracker');
+    } else if (newCurrentScreen === 'quick-jot') {
+      console.log('Navigating to quick-jot');
+      router.push('/(tabs)/quick-jot');
+    } else if (newCurrentScreen === 'notes') {
+      console.log('Navigating to notes');
+      router.push('/(tabs)/notes');
+    } else {
+      // If no screen in stack or current screen was the only one, use default fallback
+      console.log('Using default fallback:', defaultFallback);
+      if (defaultFallback === 'home') {
+        router.push('/(tabs)');
+      } else {
+        router.push('/menu');
+      }
+    }
   }, [navigationStack, router]);
 
   const contextValue = useMemo(() => ({

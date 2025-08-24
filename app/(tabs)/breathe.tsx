@@ -4,6 +4,7 @@ import { useThemeColors } from '@/hooks/useThemeColors';
 import React, { useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import InfoModal from '@/components/ui/InfoModal';
 
 const INHALE_DURATION = 4000;
 const HOLD_DURATION = 7000;
@@ -28,6 +29,7 @@ export default function BreatheScreen() {
   const [showSummary, setShowSummary] = useState(false);
   const [phaseTimer, setPhaseTimer] = useState<number | null>(null);
   const [phaseCount, setPhaseCount] = useState<number | null>(null);
+  const [showInfoModal, setShowInfoModal] = useState(false);
   const fillAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
@@ -164,12 +166,21 @@ export default function BreatheScreen() {
     if (timerRef.current) clearInterval(timerRef.current);
   };
 
+  const handleInfo = () => {
+    setShowInfoModal(true);
+  };
+
   const currentPhase = PHASES[phaseIndex];
   const circleSize = Math.min(width, height) * 0.6;
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>  
-      <TopBar title="Breathe With Me" onBack={() => handleBack()} />
+      <TopBar 
+        title="Breathe With Me" 
+        onBack={() => handleBack()} 
+        showInfo={true}
+        onInfo={handleInfo} 
+      />
       <View style={styles.content}>
         <View style={styles.instructionsBox}>
           <Text style={[styles.instructions, { color: colors.text, fontSize: 22 }]} accessibilityLiveRegion="polite">
@@ -230,6 +241,30 @@ export default function BreatheScreen() {
           </View>
         )}
       </View>
+      
+      {/* Info Modal */}
+      <InfoModal
+        visible={showInfoModal}
+        onClose={() => setShowInfoModal(false)}
+        title="Breathing Exercise Guide"
+        sections={[
+          {
+            title: "Purpose",
+            content: "Breathing exercises help regulate your nervous system, reduce stress, and bring you back to the present moment. This guided breathing pattern follows a 4-4-4 rhythm."
+          },
+          {
+            title: "How to Use",
+            content: "Tap the circle to start. Follow the visual cues: expand on inhale, hold steady, and contract on exhale. Focus on your breath and let go of other thoughts."
+          }
+        ]}
+        tips={[
+          "Find a comfortable position",
+          "Close your eyes if it helps you focus",
+          "Don't force your breath - let it flow naturally",
+          "Practice regularly for best results"
+        ]}
+        description="Breathing exercises are one of the most effective ways to activate your parasympathetic nervous system and find calm in moments of stress or overwhelm."
+      />
     </SafeAreaView>
   );
 }

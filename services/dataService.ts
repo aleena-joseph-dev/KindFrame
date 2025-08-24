@@ -1080,4 +1080,130 @@ export class DataService {
       return { success: false, error: error.message };
     }
   }
+
+  // Search user content across all tables
+  static async searchUserContent(query: string): Promise<any[]> {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return [];
+      }
+
+      const searchTerm = `%${query.toLowerCase()}%`;
+      const results: any[] = [];
+
+      // Search todos
+      const { data: todos } = await supabase
+        .from('todos')
+        .select('id, title, description, due_date, priority, category')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (todos) {
+        results.push(...todos.map(todo => ({
+          id: todo.id,
+          type: 'todo' as const,
+          title: todo.title,
+          content: todo.description,
+          dueDate: todo.due_date,
+          priority: todo.priority,
+        })));
+      }
+
+      // Search notes
+      const { data: notes } = await supabase
+        .from('notes')
+        .select('id, title, content, category')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},content.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (notes) {
+        results.push(...notes.map(note => ({
+          id: note.id,
+          type: 'note' as const,
+          title: note.title,
+          content: note.content,
+        })));
+      }
+
+      // Search goals
+      const { data: goals } = await supabase
+        .from('goals')
+        .select('id, title, description, category, target_date')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (goals) {
+        results.push(...goals.map(goal => ({
+          id: goal.id,
+          type: 'goal' as const,
+          title: goal.title,
+          content: goal.description,
+          dueDate: goal.target_date,
+        })));
+      }
+
+      // Search calendar events
+      const { data: events } = await supabase
+        .from('calendar_events')
+        .select('id, title, description, start_time')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (events) {
+        results.push(...events.map(event => ({
+          id: event.id,
+          type: 'event' as const,
+          title: event.title,
+          content: event.description,
+          dueDate: event.start_time,
+        })));
+      }
+
+      // Search kanban cards
+      const { data: kanbanCards } = await supabase
+        .from('kanban_cards')
+        .select('id, title, description, priority, due_date')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (kanbanCards) {
+        results.push(...kanbanCards.map(card => ({
+          id: card.id,
+          type: 'task' as const,
+          title: card.title,
+          content: card.description,
+          dueDate: card.due_date,
+          priority: card.priority,
+        })));
+      }
+
+      // Search core memories
+      const { data: memories } = await supabase
+        .from('core_memories')
+        .select('id, title, description')
+        .eq('user_id', user.id)
+        .or(`title.ilike.${searchTerm},description.ilike.${searchTerm}`)
+        .limit(10);
+
+      if (memories) {
+        results.push(...memories.map(memory => ({
+          id: memory.id,
+          type: 'memory' as const,
+          title: memory.title,
+          content: memory.description,
+        })));
+      }
+
+      return results;
+    } catch (error) {
+      console.error('Error searching user content:', error);
+      return [];
+    }
+  }
 } 

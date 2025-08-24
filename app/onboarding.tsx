@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { EnergyPopup } from '@/components/onboarding/EnergyPopup';
@@ -205,15 +205,6 @@ export default function OnboardingScreen() {
     }
   };
 
-  // --- Manual clear function for testing ---
-  const clearOnboardingFlag = async () => {
-    console.log('🧹 MANUAL CLEAR: Clearing onboarding flag for testing');
-    await AsyncStorage.removeItem('hasCompletedOnboarding');
-    console.log('🧹 MANUAL CLEAR: Onboarding flag cleared, reloading page...');
-    // Force reload to trigger onboarding check again
-    window.location.reload();
-  };
-
   // --- Onboarding popup flow ---
   const handleNicknameNext = (nickname: string) => {
     setOnboardingData(prev => ({ ...prev, nickname }));
@@ -348,16 +339,6 @@ export default function OnboardingScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* TEMPORARY: Manual clear button for testing */}
-      <TouchableOpacity
-        style={[styles.clearButton, { backgroundColor: '#ff6b6b' }]}
-        onPress={clearOnboardingFlag}
-      >
-        <Text style={[styles.clearButtonText, { color: '#ffffff' }]}>
-          🧹 Clear Onboarding Flag (Testing)
-        </Text>
-      </TouchableOpacity>
-      
       {/* Blank screen - no content */}
       <View style={styles.blankScreen} />
       
@@ -394,18 +375,5 @@ const styles = StyleSheet.create({
   blankScreen: {
     flex: 1,
     backgroundColor: '#ffffff',
-  },
-  clearButton: {
-    position: 'absolute',
-    top: 100,
-    right: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 8,
-    zIndex: 1000,
-  },
-  clearButtonText: {
-    fontSize: 12,
-    fontWeight: '600',
   },
 }); 

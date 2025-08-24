@@ -1,8 +1,11 @@
 import { PaginationButton } from '@/components/ui/OptionsButton';
 import { PopupBg } from '@/components/ui/PopupBg';
+import { useAuth } from '@/contexts/AuthContext';
 import { useViewport } from '@/hooks/useViewport';
 import React, { useState } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+
+import { MoodService } from '@/services/moodService';
 
 interface EnergyPopupProps {
   visible: boolean;
@@ -20,10 +23,45 @@ export const EnergyPopup: React.FC<EnergyPopupProps> = ({
   defaultEnergyLevel = 5
 }) => {
   const [energyLevel, setEnergyLevel] = useState(defaultEnergyLevel);
+  const [isSaving, setIsSaving] = useState(false);
   const { vw, vh, getResponsiveSize } = useViewport();
+  const { session } = useAuth();
 
-  const handleNext = () => {
-    onNext(energyLevel);
+  const handleNext = async () => {
+    if (!session?.user?.id) {
+      // If no user session, just proceed without saving
+      onNext(energyLevel);
+      return;
+    }
+
+    setIsSaving(true);
+    
+    try {
+      // Save mood entry to database with both body and mind as the same energy level
+      const moodEntry = {
+        user_id: session.user.id,
+        timestamp: new Date().toISOString(),
+        mood_value: {
+          body: energyLevel,
+          mind: energyLevel,
+        },
+      };
+
+      const result = await MoodService.saveMoodEntry(moodEntry);
+      
+      if (result.success) {
+        console.log('✅ Onboarding mood entry saved successfully:', result.data);
+      } else {
+        console.error('❌ Failed to save onboarding mood entry:', result.error);
+        // Continue with onboarding even if saving fails
+      }
+    } catch (error) {
+      console.error('❌ Exception saving onboarding mood entry:', error);
+      // Continue with onboarding even if saving fails
+    } finally {
+      setIsSaving(false);
+      onNext(energyLevel);
+    }
   };
 
   const getEnergyDescription = (level: number) => {
@@ -120,13 +158,15 @@ export const EnergyPopup: React.FC<EnergyPopupProps> = ({
           <TouchableOpacity
             style={[styles.nextButton, { 
               width: vw(80),
-              paddingVertical: getResponsiveSize(10, 12, 14)
+              paddingVertical: getResponsiveSize(10, 12, 14),
+              opacity: isSaving ? 0.6 : 1,
             }]}
             onPress={handleNext}
+            disabled={isSaving}
             activeOpacity={0.8}
           >
             <Text style={[styles.nextButtonText, { fontSize: getResponsiveSize(14, 16, 18) }]}>
-              Continue
+              {isSaving ? 'Saving...' : 'Continue'}
             </Text>
           </TouchableOpacity>
         </View>

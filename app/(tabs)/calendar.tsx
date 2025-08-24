@@ -4,13 +4,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -113,7 +113,14 @@ export default function CalendarScreen() {
   useEffect(() => {
     loadEvents();
     checkGoogleCalendarConnection();
-  }, [session, currentDate]); // Re-check when session or currentDate changes
+  }, [session?.user?.id]); // Only depend on user ID, not currentDate
+
+  // Separate effect for currentDate changes to avoid infinite loops
+  useEffect(() => {
+    if (session?.user?.id) {
+      loadEvents();
+    }
+  }, [currentDate]); // Only reload events when month changes
 
   // Load synced Google Calendar events when connection status changes
   useEffect(() => {
@@ -142,7 +149,15 @@ export default function CalendarScreen() {
   }, []);
 
   const loadEvents = async () => {
+    // Prevent multiple simultaneous calls
+    if (isLoading) {
+      console.log('🎯 CALENDAR: Already loading events, skipping...');
+      return;
+    }
+
     try {
+      setIsLoading(true);
+      
       // If user is in guest mode, don't try to load from database
       if (isGuestMode && !session) {
         console.log('🎯 GUEST MODE: Skipping events load from database');
@@ -195,6 +210,8 @@ export default function CalendarScreen() {
     } catch (error) {
       console.error('Error loading events:', error);
       setEvents([]);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -245,24 +262,31 @@ export default function CalendarScreen() {
   };
 
   const handleGoogleCalendarSync = () => {
+    console.log('🔄 handleGoogleCalendarSync called, isGoogleCalendarConnected:', isGoogleCalendarConnected);
     if (isGoogleCalendarConnected) {
       // If already connected, refresh the calendar
+      console.log('🔄 Google Calendar already connected, refreshing...');
       handleRefreshCalendar();
     } else {
+      console.log('🔄 Google Calendar not connected, showing sync modal...');
       setShowGoogleCalendarSync(true);
     }
   };
 
   const handleConnectGoogleCalendar = async () => {
     try {
+      console.log('🔄 handleConnectGoogleCalendar called');
       if (!supabase) {
+        console.log('❌ No supabase instance');
         return;
       }
       
       if (!supabase.auth) {
+        console.log('❌ No supabase auth');
         return;
       }
       
+      console.log('🔄 Starting Google Calendar OAuth...');
       setShowGoogleCalendarSync(false);
       
       // Use Supabase OAuth with Calendar scopes
@@ -279,8 +303,15 @@ export default function CalendarScreen() {
         },
       });
       
+      if (error) {
+        console.log('❌ OAuth error:', error);
+      } else {
+        console.log('✅ OAuth initiated successfully, redirecting...');
+      }
+      
       // The OAuth flow will redirect to auth-callback
     } catch (error) {
+      console.log('❌ handleConnectGoogleCalendar error:', error);
       // Handle error silently
     }
   };
@@ -314,8 +345,10 @@ export default function CalendarScreen() {
         const syncResult = await DataService.syncGoogleCalendarEvents(events);
         if (syncResult.success) {
           const syncedEvents = syncResult.data as DatabaseCalendarEvent[];
-          // Reload events from database to show synced events
-          await loadEvents();
+          // Only reload events if we're not already loading
+          if (!isLoading) {
+            await loadEvents();
+          }
         } else {
           // Handle authentication error specifically
           if (syncResult.error === 'User not authenticated') {
@@ -324,7 +357,10 @@ export default function CalendarScreen() {
                 const retryResult = await DataService.syncGoogleCalendarEvents(events);
                 if (retryResult.success) {
                   const syncedEvents = retryResult.data as DatabaseCalendarEvent[];
-                  await loadEvents();
+                  // Only reload events if we're not already loading
+                  if (!isLoading) {
+                    await loadEvents();
+                  }
                 }
               } catch (retryError) {
                 // Handle retry error silently
@@ -527,10 +563,10 @@ export default function CalendarScreen() {
 
   const getEventTypeColor = (type: string) => {
     switch (type) {
-      case 'task': return '#ff6b6b';
-      case 'goal': return '#4ecdc4';
-      case 'reminder': return '#ffa502';
-      case 'event': return '#45b7d1';
+      case 'task': return colors.topBarBackground;
+      case 'goal': return colors.topBarBackground;
+      case 'reminder': return colors.topBarBackground;
+      case 'event': return colors.topBarBackground;
       default: return colors.text;
     }
   };
@@ -547,201 +583,208 @@ export default function CalendarScreen() {
       <TopBar 
         title="Calendar" 
         onBack={() => handleBack()} 
-        showSettings={true}
         syncButton={{
-          label: "Sync Calendar",
+          label: "Sync",
           onPress: handleGoogleCalendarSync,
           isConnected: isGoogleCalendarConnected
         }}
       />
       
-      {/* Sync Success Banner */}
-      {showSyncSuccess && (
-        <View style={[styles.successBanner, { backgroundColor: colors.primary }]}>
-          <Text style={[styles.successText, { color: colors.background }]}>
-            ✅ Google Calendar synced successfully! Your events are now available.
-          </Text>
-          <TouchableOpacity 
-            onPress={() => setShowSyncSuccess(false)}
-            style={styles.closeButton}
-          >
-            <Text style={[styles.closeButtonText, { color: colors.background }]}>×</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Reconnect Button (shown when connected but sync fails) */}
-      {isGoogleCalendarConnected && (
-        <View style={[styles.reconnectBanner, { backgroundColor: colors.surface }]}>
-          <Text style={[styles.reconnectText, { color: colors.text }]}>
-            Having sync issues? Try reconnecting to Google Calendar.
-          </Text>
-          <TouchableOpacity 
-            onPress={() => {
-              localStorage.removeItem('google_calendar_token');
-              setIsGoogleCalendarConnected(false);
-              setShowGoogleCalendarSync(true);
-            }}
-            style={[styles.reconnectButton, { backgroundColor: colors.primary }]}
-          >
-            <Text style={[styles.reconnectButtonText, { color: colors.background }]}>
-              Reconnect
+      <ScrollView 
+        style={styles.mainScrollView}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {/* Sync Success Banner */}
+        {showSyncSuccess && (
+          <View style={[styles.successBanner, { backgroundColor: colors.primary }]}>
+            <Text style={[styles.successText, { color: colors.background }]}>
+              ✅ Google Calendar synced successfully! Your events are now available.
             </Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Month Navigation */}
-      <View style={styles.monthContainer}>
-        <TouchableOpacity
-          style={[styles.navButton, { borderColor: colors.border }]}
-          onPress={handlePreviousMonth}
-        >
-          <Text style={[styles.navButtonText, { color: colors.text }]}>‹</Text>
-        </TouchableOpacity>
-        
-        <Text style={[styles.monthText, { color: colors.text }]}>
-          {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
-        </Text>
-        
-        <TouchableOpacity
-          style={[styles.navButton, { borderColor: colors.border }]}
-          onPress={handleNextMonth}
-        >
-          <Text style={[styles.navButtonText, { color: colors.text }]}>›</Text>
-        </TouchableOpacity>
-      </View>
-
-      {/* Calendar Grid */}
-      <View style={styles.calendarContainer}>
-        {/* Day Headers */}
-        <View style={styles.dayHeaders}>
-          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
-            <Text key={day} style={[styles.dayHeader, { color: colors.textSecondary }]}>
-              {day}
-            </Text>
-          ))}
-        </View>
-
-        {/* Calendar Days */}
-        <View style={styles.daysGrid}>
-          {days && days.map((day) => day && (
-            <TouchableOpacity
-              key={day.date}
-              style={[
-                styles.dayCell,
-                { 
-                  backgroundColor: day.date === selectedDate ? colors.buttonBackground : 'transparent',
-                  borderColor: colors.border 
-                }
-              ]}
-              onPress={() => handleDateSelect(day.date)}
+            <TouchableOpacity 
+              onPress={() => setShowSyncSuccess(false)}
+              style={styles.closeButton}
             >
-              <Text style={[
-                styles.dayNumber,
-                { 
-                  color: day.date === selectedDate ? colors.buttonText : 
-                         day.isToday ? '#ff6b6b' :
-                         day.isCurrentMonth ? colors.text : colors.textSecondary 
-                }
-              ]}>
-                {day.dayNumber && typeof day.dayNumber === 'number' ? String(day.dayNumber) : ''}
-              </Text>
-              
-              {/* Event Indicators */}
-              {day.events && day.events.length > 0 && (
-                <View style={styles.eventIndicators}>
-                  {day.events.slice(0, 3).map((event, index) => (
-                    <View
-                      key={event.id}
-                      style={[
-                        styles.eventIndicator,
-                        { backgroundColor: getEventTypeColor(event.type) }
-                      ]}
-                    />
-                  ))}
-                  {day.events && day.events.length > 3 && (
-                    <Text style={[styles.moreEvents, { color: colors.textSecondary }]}>
-                      +{String(day.events.length - 3)}
-                    </Text>
-                  )}
-                </View>
-              )}
-            </TouchableOpacity>
-          ))}
-        </View>
-      </View>
-
-      {/* Selected Date Events */}
-      {selectedDate && (
-        <View style={[styles.eventsContainer, { backgroundColor: colors.surface }]}>
-          <View style={styles.eventsHeader}>
-            <Text style={[styles.eventsTitle, { color: colors.text }]}>
-              {formatDateForDisplay(selectedDate)}
-            </Text>
-            <TouchableOpacity
-              style={[styles.addEventButton, { backgroundColor: colors.buttonBackground }]}
-              onPress={() => setShowAddEvent(true)}
-            >
-              <Text style={[styles.addEventButtonText, { color: colors.buttonText }]}>+</Text>
+              <Text style={[styles.closeButtonText, { color: colors.background }]}>×</Text>
             </TouchableOpacity>
           </View>
-          
-          <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
-            {selectedDateEvents.length === 0 ? (
-              <Text style={[styles.noEventsText, { color: colors.textSecondary }]}>
-                No events for this date
+        )}
+
+        {/* Reconnect Button (shown when connected but sync fails) */}
+        {isGoogleCalendarConnected && (
+          <View style={[styles.reconnectBanner, { backgroundColor: colors.surface }]}>
+            <Text style={[styles.reconnectText, { color: colors.text }]}>
+              Having sync issues? Try reconnecting to Google Calendar.
+            </Text>
+            <TouchableOpacity 
+              onPress={() => {
+                localStorage.removeItem('google_calendar_token');
+                setIsGoogleCalendarConnected(false);
+                setShowGoogleCalendarSync(true);
+              }}
+              style={[styles.reconnectButton, { backgroundColor: colors.primary }]}
+            >
+              <Text style={[styles.reconnectButtonText, { color: colors.background }]}>
+                Reconnect
               </Text>
-            ) : (
-              selectedDateEvents.map((event) => (
-                <View
-                  key={event.id}
-                  style={[styles.eventItem, { 
-                    backgroundColor: colors.cardBackground,
-                    borderColor: colors.border 
-                  }]}
-                >
-                  <View style={styles.eventHeader}>
-                    <View style={[styles.eventTypeIndicator, { backgroundColor: getEventTypeColor(event.type) }]} />
-                    <Text style={[styles.eventTitle, { color: colors.text }]}>
-                      {event.title || 'Untitled Event'}
-                    </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Month Navigation */}
+        <View style={styles.monthContainer}>
+          <TouchableOpacity
+            style={[styles.navButton, { borderColor: colors.border }]}
+            onPress={handlePreviousMonth}
+          >
+            <Text style={[styles.navButtonText, { color: colors.text }]}>‹</Text>
+          </TouchableOpacity>
+          
+          <Text style={[styles.monthText, { color: colors.text }]}>
+            {currentDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}
+          </Text>
+          
+          <TouchableOpacity
+            style={[styles.navButton, { borderColor: colors.border }]}
+            onPress={handleNextMonth}
+          >
+            <Text style={[styles.navButtonText, { color: colors.text }]}>›</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Calendar Grid */}
+        <View style={styles.calendarContainer}>
+          {/* Day Headers */}
+          <View style={styles.dayHeaders}>
+            {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((day) => (
+              <Text key={day} style={[styles.dayHeader, { color: colors.textSecondary }]}>
+                {day}
+              </Text>
+            ))}
+          </View>
+
+          {/* Calendar Days */}
+          <View style={styles.daysGrid}>
+            {days && days.map((day) => day && (
+              <TouchableOpacity
+                key={day.date}
+                style={[
+                  styles.dayCell,
+                  { 
+                    backgroundColor: day.date === selectedDate ? colors.topBarBackground : 'transparent',
+                    borderColor: day.isToday ? colors.topBarBackground : 'transparent'
+                  }
+                ]}
+                onPress={() => handleDateSelect(day.date)}
+              >
+                <Text style={[
+                  styles.dayNumber,
+                  { 
+                    color: day.date === selectedDate ? colors.buttonText : 
+                           day.isToday ? colors.topBarBackground :
+                           day.isCurrentMonth ? colors.text : colors.textSecondary 
+                  }
+                ]}>
+                  {day.dayNumber && typeof day.dayNumber === 'number' ? String(day.dayNumber) : ''}
+                </Text>
+                
+                {/* Event Indicators */}
+                {day.events && day.events.length > 0 && (
+                  <View style={styles.eventIndicators}>
+                    {day.events.slice(0, 3).map((event, index) => (
+                      <View
+                        key={event.id}
+                        style={[
+                          styles.eventIndicator,
+                          { backgroundColor: getEventTypeColor(event.type) }
+                        ]}
+                      />
+                    ))}
+                    {day.events && day.events.length > 3 && (
+                      <Text style={[styles.moreEvents, { color: colors.textSecondary }]}>
+                        +{String(day.events.length - 3)}
+                      </Text>
+                    )}
+                  </View>
+                )}
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
+
+        {/* Selected Date Events */}
+        {selectedDate && (
+          <View style={[styles.eventsContainer, { backgroundColor: colors.surface }]}>
+            <View style={styles.eventsHeader}>
+              <Text style={[styles.eventsTitle, { color: colors.text }]}>
+                {formatDateForDisplay(selectedDate)}
+              </Text>
+              <TouchableOpacity
+                style={[styles.addEventButton, { backgroundColor: colors.topBarBackground }]}
+                onPress={() => setShowAddEvent(true)}
+              >
+                <Text style={[styles.addEventButtonText, { color: colors.background }]}>+</Text>
+              </TouchableOpacity>
+            </View>
+            
+            <ScrollView style={styles.eventsList} showsVerticalScrollIndicator={false}>
+              {selectedDateEvents.length === 0 ? (
+                <Text style={[styles.noEventsText, { color: colors.textSecondary }]}>
+                  No events for this date
+                </Text>
+              ) : (
+                selectedDateEvents.map((event) => (
+                  <View
+                    key={event.id}
+                    style={[styles.eventItem, { 
+                      backgroundColor: colors.cardBackground,
+                      borderColor: colors.border 
+                    }]}
+                  >
+                    <View style={styles.eventHeader}>
+                      <View style={[styles.eventTypeIndicator, { backgroundColor: getEventTypeColor(event.type) }]} />
+                      <Text style={[styles.eventTitle, { color: colors.text }]}>
+                        {event.title || 'Untitled Event'}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.deleteEventButton}
+                        onPress={() => handleDeleteEvent(event.id)}
+                      >
+                        <Text style={[styles.deleteEventButtonText, { color: colors.textSecondary }]}>×</Text>
+                      </TouchableOpacity>
+                    </View>
+                    
+                    {event.description && event.description.trim() && (
+                      <Text style={[styles.eventDescription, { color: colors.textSecondary }]}>
+                        {event.description}
+                      </Text>
+                    )}
+                    
+                    {event.time && event.time.trim() && (
+                      <Text style={[styles.eventTime, { color: colors.textSecondary }]}>
+                        {event.time}
+                      </Text>
+                    )}
+                    
                     <TouchableOpacity
-                      style={styles.deleteEventButton}
-                      onPress={() => handleDeleteEvent(event.id)}
+                      style={[styles.completeButton, { 
+                        backgroundColor: event.completed ? colors.topBarBackground : colors.topBarBackground 
+                      }]}
+                      onPress={() => handleToggleEvent(event.id)}
                     >
-                      <Text style={[styles.deleteEventButtonText, { color: colors.textSecondary }]}>×</Text>
+                      <Text style={[styles.completeButtonText, { 
+                        color: event.completed ? colors.background : colors.background 
+                      }]}>
+                        {event.completed ? 'Completed' : 'Mark Complete'}
+                      </Text>
                     </TouchableOpacity>
                   </View>
-                  
-                  {event.description && event.description.trim() && (
-                    <Text style={[styles.eventDescription, { color: colors.textSecondary }]}>
-                      {event.description}
-                    </Text>
-                  )}
-                  
-                  {event.time && event.time.trim() && (
-                    <Text style={[styles.eventTime, { color: colors.textSecondary }]}>
-                      {event.time}
-                    </Text>
-                  )}
-                  
-                  <TouchableOpacity
-                    style={[styles.completeButton, { 
-                      backgroundColor: event.completed ? '#2ed573' : colors.buttonBackground 
-                    }]}
-                    onPress={() => handleToggleEvent(event.id)}
-                  >
-                    <Text style={[styles.completeButtonText, { color: colors.buttonText }]}>
-                      {event.completed ? 'Completed' : 'Mark Complete'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              ))
-            )}
-          </ScrollView>
-        </View>
-      )}
+                ))
+              )}
+            </ScrollView>
+          </View>
+        )}
+      </ScrollView>
 
       {/* Google Calendar Sync Modal */}
       {showGoogleCalendarSync && (
@@ -754,10 +797,12 @@ export default function CalendarScreen() {
             
             <View style={styles.modalButtons}>
               <TouchableOpacity
-                style={[styles.modalButton, styles.connectButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.connectButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleConnectGoogleCalendar}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Connect</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>
+                  Connect
+                </Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -836,7 +881,7 @@ export default function CalendarScreen() {
                     style={[
                       styles.typeButton,
                       { 
-                        backgroundColor: newEventType === type ? getEventTypeColor(type) : colors.cardBackground,
+                        backgroundColor: newEventType === type ? colors.topBarBackground : colors.cardBackground,
                         borderColor: colors.border 
                       }
                     ]}
@@ -844,7 +889,7 @@ export default function CalendarScreen() {
                   >
                     <Text style={[
                       styles.typeButtonText,
-                      { color: newEventType === type ? '#fff' : colors.text }
+                      { color: newEventType === type ? colors.background : colors.text }
                     ]}>
                       {type.charAt(0).toUpperCase() + type.slice(1)}
                     </Text>
@@ -862,10 +907,10 @@ export default function CalendarScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.addEventButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.addEventButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleAddEvent}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Add Event</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Add Event</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -880,6 +925,12 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  mainScrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   monthContainer: {
     flexDirection: 'row',

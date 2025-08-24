@@ -1204,12 +1204,20 @@ export default function HomeScreen() {
       const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
       const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
 
+      console.log('📅 Date range:', startOfDay.toISOString(), 'to', endOfDay.toISOString());
+
       // Fetch data from various services
       const [todosResult, goalsResult, eventsResult] = await Promise.all([
         DataService.getTodos(false), // Get incomplete todos
         DataService.getGoals('active'), // Get active goals
         DataService.getCalendarEvents(50, 0) // Get calendar events
       ]);
+
+      console.log('📊 Data fetch results:', {
+        todos: todosResult.success ? (Array.isArray(todosResult.data) ? todosResult.data.length : 1) : 'failed',
+        goals: goalsResult.success ? (Array.isArray(goalsResult.data) ? goalsResult.data.length : 1) : 'failed',
+        events: eventsResult.success ? (Array.isArray(eventsResult.data) ? eventsResult.data.length : 1) : 'failed'
+      });
 
       let todaysTasksFromDB: TodaysTask[] = [];
 
@@ -1355,6 +1363,7 @@ export default function HomeScreen() {
       // Update the state with real data
       setTodaysTasks(todaysTasksFromDB);
       console.log('✅ Loaded', todaysTasksFromDB.length, 'tasks from database');
+      console.log('📋 Tasks details:', todaysTasksFromDB.map(t => ({ id: t.id, title: t.title, type: t.type, tag: t.tag })));
       
     } catch (error) {
       console.error('❌ Error loading today\'s tasks:', error);
@@ -1364,17 +1373,8 @@ export default function HomeScreen() {
 
   // Helper function to get tag color
   const getTagColor = (category: string) => {
-    const colorMap: { [key: string]: string } = {
-      'work': '#ef4444',
-      'personal': '#10b981',
-      'health': '#f59e0b',
-      'learning': '#3b82f6',
-      'finance': '#8b5cf6',
-      'Task': '#10b981',
-      'Goal': '#8b5cf6',
-      'Event': '#8b5cf6',
-    };
-    return colorMap[category.toLowerCase()] || colorMap[category] || '#6b7280';
+    // Use mode selection color palette for all categories
+    return colors.topBarBackground;
   };
 
   // Helper function to format time
@@ -1581,78 +1581,83 @@ export default function HomeScreen() {
 
       {/* Search Results */}
       {showSearchResults && (
-        <View style={[styles.searchResultsContainer, { backgroundColor: colors.surface }]}>
-          <View style={styles.searchResultsHeader}>
-            <Text style={[styles.searchResultsTitle, { color: colors.text }]}>
-              {searchResults.length > 0 ? `Search Results (${searchResults.length})` : 'No Results Found'}
-            </Text>
-            <TouchableOpacity 
-              onPress={() => {
-                setSearchQuery('');
-                setSearchResults([]);
-                setShowSearchResults(false);
-              }}
-            >
-              <Text style={[styles.clearSearchText, { color: colors.textSecondary }]}>Clear</Text>
-            </TouchableOpacity>
-          </View>
+        <>
+          {/* Background Overlay */}
+          <View style={[styles.searchOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]} />
           
-          {searchResults.length > 0 ? (
-            <ScrollView style={styles.searchResultsList} showsVerticalScrollIndicator={false}>
-              {searchResults.map((result, index) => (
-                <TouchableOpacity
-                  key={`${result.id}-${index}`}
-                  style={[styles.searchResultItem, { borderBottomColor: colors.border }]}
-                  onPress={() => handleSearchResultSelect(result)}
-                >
-                  <View style={styles.searchResultHeader}>
-                    <View style={styles.searchResultType}>
-                      {getSearchResultIcon(result.type)}
-                      {result.category && (
-                        <View style={[styles.searchResultTag, { backgroundColor: result.tagColor || '#e5e7eb' }]}>
-                          <Text style={styles.searchResultTagText}>{result.category}</Text>
-                        </View>
-                      )}
+          <View style={[styles.searchResultsContainer, { backgroundColor: colors.surface }]}>
+            <View style={styles.searchResultsHeader}>
+              <Text style={[styles.searchResultsTitle, { color: colors.text }]}>
+                {searchResults.length > 0 ? `Search Results (${searchResults.length})` : 'No Results Found'}
+              </Text>
+              <TouchableOpacity 
+                onPress={() => {
+                  setSearchQuery('');
+                  setSearchResults([]);
+                  setShowSearchResults(false);
+                }}
+              >
+                <Text style={[styles.clearSearchText, { color: colors.textSecondary }]}>Clear</Text>
+              </TouchableOpacity>
+            </View>
+            
+            {searchResults.length > 0 ? (
+              <ScrollView style={styles.searchResultsList} showsVerticalScrollIndicator={false}>
+                {searchResults.map((result, index) => (
+                  <TouchableOpacity
+                    key={`${result.id}-${index}`}
+                    style={[styles.searchResultItem, { borderBottomColor: colors.border }]}
+                    onPress={() => handleSearchResultSelect(result)}
+                  >
+                    <View style={styles.searchResultHeader}>
+                      <View style={styles.searchResultType}>
+                        {getSearchResultIcon(result.type)}
+                        {result.category && (
+                          <View style={[styles.searchResultTag, { backgroundColor: result.tagColor || '#e5e7eb' }]}>
+                            <Text style={styles.searchResultTagText}>{result.category}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.searchResultConfidence, { color: colors.textSecondary }]}>
+                        {Math.round(result.confidence * 100)}%
+                      </Text>
                     </View>
-                    <Text style={[styles.searchResultConfidence, { color: colors.textSecondary }]}>
-                      {Math.round(result.confidence * 100)}%
+                    
+                    <Text style={[styles.searchResultTitle, { color: colors.text }]} numberOfLines={1}>
+                      {result.title}
                     </Text>
-                  </View>
-                  
-                  <Text style={[styles.searchResultTitle, { color: colors.text }]} numberOfLines={1}>
-                    {result.title}
-                  </Text>
-                  
-                  {result.content && (
-                    <Text style={[styles.searchResultContent, { color: colors.textSecondary }]} numberOfLines={2}>
-                      {result.content}
-                    </Text>
-                  )}
-                  
-                  <View style={styles.searchResultFooter}>
-                    {result.dueTime && (
-                      <Text style={[styles.searchResultTime, { color: colors.textSecondary }]}>
-                        ⏰ {result.dueTime}
+                    
+                    {result.content && (
+                      <Text style={[styles.searchResultContent, { color: colors.textSecondary }]} numberOfLines={2}>
+                        {result.content}
                       </Text>
                     )}
-                    <Text style={[styles.searchResultRoute, { color: colors.textSecondary }]}>
-                      {result.route.replace('/(tabs)/', '').replace('/', '')}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          ) : (
-            <View style={styles.noResultsContainer}>
-              <Text style={[styles.noResultsText, { color: colors.textSecondary }]}>
-                No results found for "{searchQuery}"
-              </Text>
-              <Text style={[styles.noResultsSubtext, { color: colors.textSecondary }]}>
-                Try different keywords or check your spelling
-              </Text>
-            </View>
-          )}
-        </View>
+                    
+                    <View style={styles.searchResultFooter}>
+                      {result.dueTime && (
+                        <Text style={[styles.searchResultTime, { color: colors.textSecondary }]}>
+                          ⏰ {result.dueTime}
+                        </Text>
+                      )}
+                      <Text style={[styles.searchResultRoute, { color: colors.textSecondary }]}>
+                        {result.route.replace('/(tabs)/', '').replace('/', '')}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.noResultsContainer}>
+                <Text style={[styles.noResultsText, { color: colors.textSecondary }]}>
+                  No results found for "{searchQuery}"
+                </Text>
+                <Text style={[styles.noResultsSubtext, { color: colors.textSecondary }]}>
+                  Try different keywords or check your spelling
+                </Text>
+              </View>
+            )}
+          </View>
+        </>
       )}
 
       {/* Guest Mode Indicator */}
@@ -1722,10 +1727,10 @@ export default function HomeScreen() {
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity 
-                style={[styles.createTaskButton, { backgroundColor: colors.primary }]}
+                style={[styles.createTaskButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={openTaskCreationMenu}
               >
-                <Text style={[styles.createTaskButtonText, { color: colors.buttonText }]}>
+                <Text style={[styles.createTaskButtonText, { color: colors.background }]}>
                   Create Task +
                 </Text>
               </TouchableOpacity>
@@ -1742,8 +1747,8 @@ export default function HomeScreen() {
                   style={[
                     styles.taskCard,
                     { 
-                      backgroundColor: isClosestToCurrentTime ? '#f0f9ff' : '#fafafa',
-                      borderColor: isClosestToCurrentTime ? '#3b82f6' : '#e5e7eb',
+                      backgroundColor: isClosestToCurrentTime ? colors.topBarBackground + '20' : colors.surface,
+                      borderColor: isClosestToCurrentTime ? colors.topBarBackground : colors.border,
                       borderWidth: isClosestToCurrentTime ? 2 : 1,
                     }
                   ]}
@@ -1754,8 +1759,8 @@ export default function HomeScreen() {
                     <View style={styles.taskTypeContainer}>
                       {getTaskIcon(task.type)}
                       {task.tag && (
-                        <View style={[styles.taskTag, { backgroundColor: task.tagColor || '#e5e7eb' }]}>
-                          <Text style={[styles.taskTagText, { color: '#ffffff' }]}>
+                        <View style={[styles.taskTag, { backgroundColor: colors.topBarBackground }]}>
+                          <Text style={[styles.taskTagText, { color: colors.background }]}>
                             {task.tag}
                           </Text>
                         </View>
@@ -1894,7 +1899,7 @@ export default function HomeScreen() {
 
           {/* Profile Icon Container */}
           <View style={styles.iconContainer}>
-            <TouchableOpacity style={styles.centerIconBtn} onPress={handleProfilePress}>
+            <TouchableOpacity style={styles.centerIconBtn} onPress={() => router.push('/profile')}>
               <ProfileIcon size={28} color={colors.icon} />
               <Text style={[styles.bottomNavText, { color: colors.textSecondary }]}>My Profile</Text>
             </TouchableOpacity>
@@ -2532,6 +2537,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
+    zIndex: 9999,
   },
   searchResultsHeader: {
     flexDirection: 'row',
@@ -2616,5 +2622,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  searchOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 9998,
   },
 });

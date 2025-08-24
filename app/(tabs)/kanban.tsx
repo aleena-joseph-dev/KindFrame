@@ -27,7 +27,7 @@ interface KanbanTask {
   description?: string;
   column: 'todo' | 'inProgress' | 'done';
   createdAt: Date;
-  priority?: 'low' | 'medium' | 'high';
+  priority?: 'low' | 'medium' | 'high' | 'urgent';
 }
 
 interface KanbanColumn {
@@ -59,9 +59,9 @@ export default function KanbanScreen() {
   const [loading, setLoading] = useState(false);
 
   const columns: KanbanColumn[] = [
-    { id: 'todo', title: 'To Do', color: '#ff6b6b' },
-    { id: 'inProgress', title: 'In Progress', color: '#4ecdc4' },
-    { id: 'done', title: 'Done', color: '#45b7d1' },
+    { id: 'todo', title: 'To Do', color: colors.topBarBackground },
+    { id: 'inProgress', title: 'In Progress', color: colors.topBarBackground },
+    { id: 'done', title: 'Done', color: colors.topBarBackground },
   ];
 
   // Add this screen to navigation stack when component mounts
@@ -252,7 +252,8 @@ export default function KanbanScreen() {
       case 'high': return '#ff4757';
       case 'medium': return '#ffa502';
       case 'low': return '#2ed573';
-      default: return '#747d8c';
+      case 'urgent': return '#ff4757';
+      default: return colors.textSecondary;
     }
   };
 
@@ -262,15 +263,15 @@ export default function KanbanScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Kanban Board" onBack={() => handleBack()} showSettings={true} />
+      <TopBar title="Kanban Board" onBack={() => handleBack()} />
 
       {/* Add Task Button */}
       <View style={styles.addButtonContainer}>
         <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
+          style={[styles.addButton, { backgroundColor: colors.topBarBackground }]}
           onPress={() => setShowAddTask(true)}
         >
-          <Text style={[styles.addButtonText, { color: colors.buttonText }]}>+ Add Task</Text>
+          <Text style={[styles.addButtonText, { color: colors.background }]}>+ Add Task</Text>
         </TouchableOpacity>
       </View>
 
@@ -335,19 +336,28 @@ export default function KanbanScreen() {
                   <View style={styles.taskActions}>
                     {column.id !== 'todo' && (
                       <TouchableOpacity
-                        style={[styles.moveButton, { backgroundColor: colors.buttonBackground }]}
+                        style={[styles.moveButton, { backgroundColor: colors.topBarBackground }]}
                         onPress={() => handleMoveTask(task.id, 'todo')}
                       >
-                        <Text style={[styles.moveButtonText, { color: colors.buttonText }]}>←</Text>
+                        <Text style={[styles.moveButtonText, { color: colors.background }]}>←</Text>
+                      </TouchableOpacity>
+                    )}
+                    
+                    {column.id !== 'inProgress' && (
+                      <TouchableOpacity
+                        style={[styles.moveButton, { backgroundColor: colors.topBarBackground }]}
+                        onPress={() => handleMoveTask(task.id, 'inProgress')}
+                      >
+                        <Text style={[styles.moveButtonText, { color: colors.background }]}>→</Text>
                       </TouchableOpacity>
                     )}
                     
                     {column.id !== 'done' && (
                       <TouchableOpacity
-                        style={[styles.moveButton, { backgroundColor: colors.buttonBackground }]}
-                        onPress={() => handleMoveTask(task.id, column.id === 'todo' ? 'inProgress' : 'done')}
+                        style={[styles.moveButton, { backgroundColor: colors.topBarBackground }]}
+                        onPress={() => handleMoveTask(task.id, 'done')}
                       >
-                        <Text style={[styles.moveButtonText, { color: colors.buttonText }]}>→</Text>
+                        <Text style={[styles.moveButtonText, { color: colors.background }]}>→</Text>
                       </TouchableOpacity>
                     )}
                   </View>
@@ -361,14 +371,14 @@ export default function KanbanScreen() {
       {/* Add Task Modal */}
       {showAddTask && (
         <View style={[styles.modalOverlay, { backgroundColor: 'rgba(0, 0, 0, 0.5)' }]}>
-          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
+          <View style={[styles.modalContent, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Text style={[styles.modalTitle, { color: colors.text }]}>Add New Task</Text>
             
             <TextInput
               style={[styles.input, { 
                 backgroundColor: colors.cardBackground,
-                color: colors.text,
-                borderColor: colors.border 
+                borderColor: colors.border,
+                color: colors.text 
               }]}
               placeholder="Task title"
               placeholderTextColor={colors.textSecondary}
@@ -379,19 +389,18 @@ export default function KanbanScreen() {
             <TextInput
               style={[styles.input, styles.textArea, { 
                 backgroundColor: colors.cardBackground,
-                color: colors.text,
-                borderColor: colors.border 
+                borderColor: colors.border,
+                color: colors.text 
               }]}
-              placeholder="Description (optional)"
+              placeholder="Task description (optional)"
               placeholderTextColor={colors.textSecondary}
               value={newTaskDescription}
               onChangeText={setNewTaskDescription}
               multiline
-              numberOfLines={3}
             />
             
             <View style={styles.priorityContainer}>
-              <Text style={[styles.priorityLabel, { color: colors.text }]}>Priority:</Text>
+              <Text style={[styles.priorityLabel, { color: colors.text }]}>Priority</Text>
               <View style={styles.priorityButtons}>
                 {(['low', 'medium', 'high'] as const).map((priority) => (
                   <TouchableOpacity
@@ -399,7 +408,7 @@ export default function KanbanScreen() {
                     style={[
                       styles.priorityButton,
                       { 
-                        backgroundColor: newTaskPriority === priority ? getPriorityColor(priority) : colors.cardBackground,
+                        backgroundColor: newTaskPriority === priority ? colors.topBarBackground : colors.surface,
                         borderColor: colors.border 
                       }
                     ]}
@@ -407,7 +416,7 @@ export default function KanbanScreen() {
                   >
                     <Text style={[
                       styles.priorityButtonText,
-                      { color: newTaskPriority === priority ? '#fff' : colors.text }
+                      { color: newTaskPriority === priority ? colors.background : colors.text }
                     ]}>
                       {priority.charAt(0).toUpperCase() + priority.slice(1)}
                     </Text>
@@ -425,10 +434,10 @@ export default function KanbanScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.addTaskButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.addTaskButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleAddTask}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Add Task</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Add Task</Text>
               </TouchableOpacity>
             </View>
           </View>

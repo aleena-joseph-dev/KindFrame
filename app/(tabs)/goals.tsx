@@ -2,13 +2,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import {
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -299,31 +299,31 @@ export default function GoalsScreen() {
 
   const getCategoryColor = (category: string) => {
     switch (category) {
-      case 'personal': return '#ff6b6b';
-      case 'work': return '#4ecdc4';
-      case 'health': return '#2ed573';
-      case 'learning': return '#ffa502';
-      case 'creative': return '#45b7d1';
-      case 'financial': return '#a55eea';
+      case 'personal': return colors.topBarBackground;
+      case 'work': return colors.topBarBackground;
+      case 'health': return colors.topBarBackground;
+      case 'learning': return colors.topBarBackground;
+      case 'creative': return colors.topBarBackground;
+      case 'financial': return colors.topBarBackground;
       default: return colors.text;
     }
   };
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
-      case 'high': return '#ff4757';
-      case 'medium': return '#ffa502';
-      case 'low': return '#2ed573';
-      default: return '#747d8c';
+      case 'high': return colors.topBarBackground;
+      case 'medium': return colors.topBarBackground;
+      case 'low': return colors.topBarBackground;
+      default: return colors.textSecondary;
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'active': return '#2ed573';
-      case 'paused': return '#ffa502';
-      case 'completed': return '#45b7d1';
-      default: return '#747d8c';
+      case 'active': return colors.topBarBackground;
+      case 'paused': return colors.topBarBackground;
+      case 'completed': return colors.topBarBackground;
+      default: return colors.textSecondary;
     }
   };
 
@@ -333,15 +333,15 @@ export default function GoalsScreen() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Goals" onBack={() => handleBack()} showSettings={true} />
+      <TopBar title="Goals" onBack={() => handleBack()} />
 
       {/* Add Goal Button */}
       <View style={styles.addButtonContainer}>
         <TouchableOpacity
-          style={[styles.addButton, { backgroundColor: colors.buttonBackground }]}
+          style={[styles.addButton, { backgroundColor: colors.topBarBackground }]}
           onPress={() => setShowAddGoal(true)}
         >
-          <Text style={[styles.addButtonText, { color: colors.buttonText }]}>+ Add Goal</Text>
+          <Text style={[styles.addButtonText, { color: colors.background }]}>+ Add Goal</Text>
         </TouchableOpacity>
       </View>
 
@@ -495,15 +495,15 @@ export default function GoalsScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={[styles.actionButton, { borderColor: colors.border }]}
+                    style={[styles.actionButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
                     onPress={() => handleDeleteGoal(goal.id)}
                   >
-                    <Text style={[styles.actionButtonText, { color: '#ff4757' }]}>Delete</Text>
+                    <Text style={[styles.actionButtonText, { color: colors.text }]}>Delete</Text>
                   </TouchableOpacity>
                 </View>
                 
-                <Text style={[styles.completedText, { color: '#2ed573' }]}>
-                  ✓ Completed on {goal.completedAt ? new Date(goal.completedAt).toLocaleDateString() : 'Unknown'}
+                <Text style={[styles.completedText, { color: colors.topBarBackground }]}>
+                  Completed on {goal.completedAt ? new Date(goal.completedAt).toLocaleDateString() : 'Unknown date'}
                 </Text>
               </View>
             ))}
@@ -625,10 +625,10 @@ export default function GoalsScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.addGoalButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.addGoalButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleAddGoal}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Add Goal</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Add Goal</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -685,10 +685,10 @@ export default function GoalsScreen() {
               <View style={styles.milestonesHeader}>
                 <Text style={[styles.milestonesTitle, { color: colors.text }]}>Milestones</Text>
                 <TouchableOpacity
-                  style={[styles.addMilestoneButton, { backgroundColor: colors.buttonBackground }]}
+                  style={[styles.addMilestoneButton, { backgroundColor: colors.topBarBackground }]}
                   onPress={() => setShowMilestoneModal(true)}
                 >
-                  <Text style={[styles.addMilestoneButtonText, { color: colors.buttonText }]}>+</Text>
+                  <Text style={[styles.addMilestoneButtonText, { color: colors.background }]}>+ Add Milestone</Text>
                 </TouchableOpacity>
               </View>
               
@@ -717,7 +717,7 @@ export default function GoalsScreen() {
                         {milestone.title}
                       </Text>
                       {milestone.completed && (
-                        <Text style={[styles.milestoneCompleted, { color: '#2ed573' }]}>✓</Text>
+                        <Text style={[styles.milestoneCompleted, { color: colors.topBarBackground }]}>✓</Text>
                       )}
                     </TouchableOpacity>
                   ))
@@ -755,10 +755,10 @@ export default function GoalsScreen() {
               </TouchableOpacity>
               
               <TouchableOpacity
-                style={[styles.modalButton, styles.addMilestoneButton, { backgroundColor: colors.buttonBackground }]}
+                style={[styles.modalButton, styles.addMilestoneButton, { backgroundColor: colors.topBarBackground }]}
                 onPress={handleAddMilestone}
               >
-                <Text style={[styles.modalButtonText, { color: colors.buttonText }]}>Add Milestone</Text>
+                <Text style={[styles.modalButtonText, { color: colors.background }]}>Add Milestone</Text>
               </TouchableOpacity>
             </View>
           </View>

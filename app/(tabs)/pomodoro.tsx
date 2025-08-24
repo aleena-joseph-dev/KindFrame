@@ -1,342 +1,583 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+// Enhanced Pomodoro Screen
+// Main screen that integrates all pomodoro components
+
+import { BottomSheetModalProvider } from '@gorhom/bottom-sheet';
 import { useRouter } from 'expo-router';
-import React, { useEffect, useRef, useState } from 'react';
-import {
-    Alert,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    Vibration,
-    View,
-} from 'react-native';
-import Animated, {
-    Easing,
-    useAnimatedStyle,
-    useSharedValue,
-    withRepeat,
-    withTiming,
-} from 'react-native-reanimated';
+import React, { useCallback, useEffect, useState } from 'react';
+import { Alert, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
+import AddOrLinkItemSheet, { LinkableItem } from '@/components/pomodoro/AddOrLinkItemSheet';
+import ModeTabs from '@/components/pomodoro/ModeTabs';
+import SettingsModal, { PomodoroSettings } from '@/components/pomodoro/SettingsModal';
+import TasksPanel from '@/components/pomodoro/TasksPanel';
+import TimerCard from '@/components/pomodoro/TimerCard';
 import TopBar from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { usePomodoroTimer } from '@/hooks/usePomodoroTimer';
 import { useThemeColors } from '@/hooks/useThemeColors';
-import { useViewport } from '@/hooks/useViewport';
-
-interface PomodoroSession {
-  id: string;
-  type: 'work' | 'shortBreak' | 'longBreak';
-  duration: number;
-  completedAt: Date;
-}
+import { formatTime } from '@/lib/pomodoro/format';
+import { PomodoroSessionsStorage, PomodoroSettingsStorage } from '@/lib/pomodoro/storage';
+import { PomodoroTask } from '@/lib/pomodoro/types';
+import { DataService } from '@/services/dataService';
 
 export default function PomodoroScreen() {
+  const { colors } = useThemeColors();
+  const { session, loading: authLoading } = useAuth();
   const router = useRouter();
-  const { mode, colors } = useThemeColors();
-  const { vw, vh, getResponsiveSize } = useViewport();
-  const { addToStack, removeFromStack, getPreviousScreen, getCurrentScreen, handleBack } = usePreviousScreen();
   
-  const [isRunning, setIsRunning] = useState(false);
-  const [isPaused, setIsPaused] = useState(false);
-  const [timeLeft, setTimeLeft] = useState(25 * 60); // 25 minutes in seconds
-  const [currentMode, setCurrentMode] = useState<'work' | 'shortBreak' | 'longBreak'>('work');
-  const [completedSessions, setCompletedSessions] = useState<PomodoroSession[]>([]);
-  const [totalWorkTime, setTotalWorkTime] = useState(0);
+  console.log('PomodoroScreen: Component rendered, session:', session?.user?.id ? `ID: ${session.user.id}` : 'No session', 'authLoading:', authLoading);
   
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const animationValue = useSharedValue(0);
+  const [showAddOrLinkSheet, setShowAddOrLinkSheet] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [tasks, setTasks] = useState<PomodoroTask[]>([]);
+  const [currentTask, setCurrentTask] = useState<PomodoroTask | null>(null);
+  const [totalCompletedToday, setTotalCompletedToday] = useState(0);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const timerConfig = {
-    work: 25 * 60, // 25 minutes
-    shortBreak: 5 * 60, // 5 minutes
-    longBreak: 15 * 60, // 15 minutes
-  };
+  // Default settings
+  const [settings, setSettings] = useState<PomodoroSettings>({
+    pomo_min: 25,
+    short_break_min: 5,
+    long_break_min: 15,
+    long_break_interval: 4,
+    auto_start_breaks: false,
+    auto_start_pomodoros: false,
+    hour_format: '24h',
+    alarm_sound: 'classic',
+    alarm_volume: 50,
+    tick_sound: 'none',
+    tick_volume: 0,
+    dark_mode_when_running: false,
+    compact_window: false,
+    reminder_before_min: 0,
+  });
 
-  // Add this screen to navigation stack when component mounts
-  useEffect(() => {
-    addToStack('pomodoro');
-  }, [addToStack]);
-
-  useEffect(() => {
-    loadSessions();
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
+  // Define handlers before using them in usePomodoroTimer
+  const handleSessionComplete = useCallback(async (mode: 'focus' | 'short_break' | 'long_break', duration: number) => {
+    try {
+      console.log('Session completed:', mode, duration);
+      
+      // Update current task if one is active
+      if (currentTask && mode === 'focus') {
+        setTasks(prev => {
+          const updatedTasks = prev.map(task =>
+            task.id === currentTask.id
+              ? { ...task, completedPomos: task.completedPomos + 1 }
+              : task
+          );
+          
+          // Check if task is completed
+          const updatedTask = updatedTasks.find(t => t.id === currentTask.id);
+          if (updatedTask && updatedTask.completedPomos >= updatedTask.estPomos) {
+            return updatedTasks.map(task =>
+              task.id === currentTask.id
+                ? { ...task, isCompleted: true, isActive: false }
+                : task
+            );
+          }
+          return updatedTasks;
+        });
+        
+        // Check if we need to clear current task
+        setCurrentTask(prev => {
+          if (!prev) return null;
+          
+          const updatedTask = tasks.find(t => t.id === prev.id);
+          if (updatedTask && updatedTask.completedPomos >= updatedTask.estPomos) {
+            return null;
+          }
+          return prev;
+        });
       }
-    };
+
+      // Reload total completed count
+      await loadTotalCompletedToday();
+
+      // Show completion message
+      const modeText = mode === 'focus' ? 'Pomodoro' : mode === 'short_break' ? 'Short Break' : 'Long Break';
+      Alert.alert('Session Complete!', `${modeText} session completed successfully.`);
+    } catch (error) {
+      console.error('Error handling session completion:', error);
+    }
+  }, [currentTask, tasks]);
+
+  const handleModeChange = useCallback((newMode: 'focus' | 'short_break' | 'long_break') => {
+    // This will be set in the usePomodoroTimer hook
   }, []);
 
+  const {
+    mode,
+    timeLeft,
+    isRunning,
+    isPaused,
+    focusCount,
+    start,
+    pause,
+    resume,
+    skip,
+    changeMode,
+    setLinkedItem,
+    resetFocusCount,
+    reset,
+  } = usePomodoroTimer({ 
+    settings,
+    onSessionComplete: handleSessionComplete,
+    onModeChange: handleModeChange,
+  });
+
+  // Update handleModeChange to use the changeMode function
+  const handleModeChangeCallback = useCallback((newMode: 'focus' | 'short_break' | 'long_break') => {
+    console.log('🔄 Mode change requested:', newMode);
+    console.log('changeMode function available:', !!changeMode);
+    changeMode(newMode);
+  }, [changeMode]);
+
+  // Add debugging for timer functions
+  const handleStart = useCallback(() => {
+    console.log('🎯 START button pressed!');
+    console.log('Current state:', { isRunning, isPaused, mode });
+    console.log('Timer functions available:', { start: !!start, pause: !!pause, resume: !!resume });
+    start();
+  }, [start, isRunning, isPaused, mode]);
+
+  const handlePause = useCallback(() => {
+    console.log('⏸️ PAUSE button pressed!');
+    console.log('Current state:', { isRunning, isPaused, mode });
+    pause();
+  }, [pause, isRunning, isPaused, mode]);
+
+  const handleResume = useCallback(() => {
+    console.log('▶️ RESUME button pressed!');
+    console.log('Current state:', { isRunning, isPaused, mode });
+    resume();
+  }, [resume, isRunning, isPaused, mode]);
+
+  const handleSkip = useCallback(() => {
+    console.log('⏭️ SKIP button pressed!');
+    console.log('Current state:', { isRunning, isPaused, mode });
+    skip();
+  }, [skip, isRunning, isPaused, mode]);
+
+  const handleReset = useCallback(() => {
+    console.log('🔄 RESET button pressed!');
+    console.log('Current state:', { isRunning, isPaused, mode });
+    reset();
+  }, [reset, isRunning, isPaused, mode]);
+
+  // Load initial data
   useEffect(() => {
-    if (isRunning && !isPaused) {
-      intervalRef.current = setInterval(() => {
-        setTimeLeft((prev) => {
-          if (prev <= 1) {
-            handleTimerComplete();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
+    if (session?.user?.id) {
+      console.log('User loaded, calling loadInitialData for user:', session.user.id);
+      loadInitialData();
     } else {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
+      console.log('No user yet, waiting...');
     }
+  }, [session?.user?.id]);
 
-    return () => {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-    };
-  }, [isRunning, isPaused]);
-
-  const loadSessions = async () => {
+  const loadInitialData = async () => {
+    setIsLoading(true);
     try {
-      const savedSessions = await AsyncStorage.getItem('pomodoro_sessions');
-      const savedTotalTime = await AsyncStorage.getItem('pomodoro_total_work_time');
-      
-      if (savedSessions) {
-        setCompletedSessions(JSON.parse(savedSessions));
-      }
-      if (savedTotalTime) {
-        setTotalWorkTime(parseInt(savedTotalTime));
+      await Promise.all([
+        loadSettings(),
+        loadTasks(),
+        loadTotalCompletedToday(),
+      ]);
+    } catch (error) {
+      console.error('Error loading initial data:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const loadSettings = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      console.log('Loading settings for user:', session.user.id);
+      const savedSettings = await PomodoroSettingsStorage.getSettings(session.user.id);
+      console.log('Retrieved settings:', savedSettings);
+      if (savedSettings) {
+        setSettings(savedSettings);
       }
     } catch (error) {
-      console.error('Error loading sessions:', error);
+      console.error('Error loading settings:', error);
     }
   };
 
-  const saveSession = async (session: PomodoroSession) => {
+  const loadTasks = async () => {
     try {
-      const updatedSessions = [...completedSessions, session];
-      await AsyncStorage.setItem('pomodoro_sessions', JSON.stringify(updatedSessions));
-      setCompletedSessions(updatedSessions);
-      
-      if (session.type === 'work') {
-        const newTotalTime = totalWorkTime + session.duration;
-        await AsyncStorage.setItem('pomodoro_total_work_time', newTotalTime.toString());
-        setTotalWorkTime(newTotalTime);
-      }
+      // TODO: Load tasks from Pomodoro storage
+      // For now, start with empty tasks list
+      setTasks([]);
+      setCurrentTask(null);
     } catch (error) {
-      console.error('Error saving session:', error);
+      console.error('Error loading tasks:', error);
     }
   };
 
-  const handleStart = () => {
-    setIsRunning(true);
-    setIsPaused(false);
-    animationValue.value = withRepeat(
-      withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true
-    );
+  const loadTotalCompletedToday = async () => {
+    if (!session?.user?.id) return;
+
+    try {
+      console.log('Loading total completed sessions for user:', session.user.id);
+      const sessions = await PomodoroSessionsStorage.getTodaySessions(session.user.id);
+      console.log('Retrieved sessions:', sessions);
+      const completedCount = sessions.filter(s => s.mode === 'focus' && !s.was_skipped).length;
+      console.log('Calculated completed count:', completedCount);
+      setTotalCompletedToday(completedCount);
+    } catch (error) {
+      console.error('Error loading total completed:', error);
+      setTotalCompletedToday(0);
+    }
   };
 
-  const handlePause = () => {
-    setIsPaused(true);
-    animationValue.value = withTiming(0, { duration: 300 });
-  };
+  const handleTaskToggle = useCallback((taskId: string) => {
+    setTasks(prev => prev.map(task => 
+      task.id === taskId 
+        ? { ...task, isCompleted: !task.isCompleted }
+        : task
+    ));
+  }, []);
 
-  const handleResume = () => {
-    setIsPaused(false);
-    animationValue.value = withRepeat(
-      withTiming(1, { duration: 2000, easing: Easing.inOut(Easing.ease) }),
-      -1,
-      true
-    );
-  };
+  const handleTaskActivate = useCallback((taskId: string) => {
+    const task = tasks.find(t => t.id === taskId);
+    if (!task) return;
 
-  const handleStop = () => {
-    setIsRunning(false);
-    setIsPaused(false);
-    setTimeLeft(timerConfig[currentMode]);
-    animationValue.value = withTiming(0, { duration: 300 });
-  };
+    // Deactivate all other tasks
+    setTasks(prev => prev.map(t => ({
+      ...t,
+      isActive: t.id === taskId
+    })));
 
-  const handleModeChange = (mode: 'work' | 'shortBreak' | 'longBreak') => {
-    if (isRunning) {
+    // Set as current task
+    setCurrentTask(task);
+
+    // Link to timer
+    setLinkedItem({
+      type: task.type,
+      id: task.id,
+      title: task.title,
+      estPomos: task.estPomos,
+    });
+
+    // Reset timer to focus mode if not already
+    if (mode !== 'focus') {
+      changeMode('focus');
+    }
+  }, [tasks, mode, changeMode, setLinkedItem]);
+
+  const handleAddOrLink = useCallback(() => {
+    console.log('🔗 Add or Link button pressed!');
+    console.log('Current state:', { showAddOrLinkSheet, showSettingsModal });
+    setShowAddOrLinkSheet(true);
+  }, [showAddOrLinkSheet, showSettingsModal]);
+
+  const handleTaskOptions = useCallback((taskId: string) => {
+    if (taskId === 'header') {
+      // Header options
       Alert.alert(
-        'Timer Running',
-        'Please stop the current timer before changing modes.',
-        [{ text: 'OK' }]
+        'Task List Options',
+        'What would you like to do?',
+        [
+          { text: 'Clear Completed', onPress: () => clearCompletedTasks() },
+          { text: 'Reset All', onPress: () => resetAllTasks() },
+          { text: 'Reset Focus Count', onPress: () => resetFocusCount() },
+          { text: 'Cancel', style: 'cancel' },
+        ]
       );
-      return;
+    } else {
+      // Individual task options
+      const task = tasks.find(t => t.id === taskId);
+      if (task) {
+        Alert.alert(
+          'Task Options',
+          `Options for "${task.title}"`,
+          [
+            { text: 'Edit', onPress: () => editTask(task) },
+            { text: 'Unlink', onPress: () => unlinkTask(taskId) },
+            { text: 'Delete', style: 'destructive', onPress: () => deleteTask(taskId) },
+            { text: 'Cancel', style: 'cancel' },
+          ]
+        );
+      }
     }
-    
-    setCurrentMode(mode);
-    setTimeLeft(timerConfig[mode]);
+  }, [tasks, resetFocusCount]);
+
+  const clearCompletedTasks = () => {
+    setTasks(prev => prev.filter(task => !task.isCompleted));
   };
 
-  const handleTimerComplete = () => {
-    setIsRunning(false);
-    setIsPaused(false);
-    
-    // Vibrate to notify user
-    Vibration.vibrate([0, 500, 200, 500]);
-    
-    const session: PomodoroSession = {
-      id: Date.now().toString(),
-      type: currentMode,
-      duration: timerConfig[currentMode],
-      completedAt: new Date(),
-    };
-    
-    saveSession(session);
-    
+  const resetAllTasks = () => {
     Alert.alert(
-      'Session Complete!',
-      `${currentMode === 'work' ? 'Work session' : 'Break session'} completed. Great job!`,
+      'Reset All Tasks?',
+      'This will reset all Pomodoro counts. Are you sure?',
       [
-        { text: 'OK', onPress: () => {
-          // Auto-switch to next mode
-          if (currentMode === 'work') {
-            const nextMode = completedSessions.filter(s => s.type === 'work').length % 4 === 3 ? 'longBreak' : 'shortBreak';
-            handleModeChange(nextMode);
-          } else {
-            handleModeChange('work');
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Reset', 
+          style: 'destructive',
+          onPress: () => {
+            setTasks(prev => prev.map(task => ({
+              ...task,
+              completedPomos: 0,
+              isCompleted: false
+            })));
+            setTotalCompletedToday(0);
           }
-        }},
+        },
       ]
     );
   };
 
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  const editTask = (task: PomodoroTask) => {
+    // TODO: Implement task editing
+    Alert.alert('Edit Task', 'Task editing not implemented yet');
   };
 
-  const getModeColor = (mode: string) => {
-    switch (mode) {
-      case 'work': return '#ff6b6b';
-      case 'shortBreak': return '#4ecdc4';
-      case 'longBreak': return '#45b7d1';
-      default: return colors.text;
+  const unlinkTask = (taskId: string) => {
+    Alert.alert(
+      'Unlink Task?',
+      'This will remove the task from your Pomodoro list but keep it in your main task list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Unlink', 
+          style: 'destructive',
+          onPress: () => {
+            setTasks(prev => prev.filter(task => task.id !== taskId));
+            if (currentTask?.id === taskId) {
+              setCurrentTask(null);
+              setLinkedItem(null);
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  const deleteTask = (taskId: string) => {
+    Alert.alert(
+      'Delete Task?',
+      'This will permanently delete the task. Are you sure?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: () => {
+            setTasks(prev => prev.filter(task => task.id !== taskId));
+            if (currentTask?.id === taskId) {
+              setCurrentTask(null);
+              setLinkedItem(null);
+            }
+          }
+        },
+      ]
+    );
+  };
+
+  const handleLinkItem = useCallback(async (item: LinkableItem, estimatedPomodoros: number) => {
+    try {
+      console.log('🔗 Linking item:', item, 'with', estimatedPomodoros, 'pomodoros');
+      
+      // Create new Pomodoro task from linked item
+      const newTask: PomodoroTask = {
+        id: `${item.type}-${item.id}`,
+        title: item.title,
+        type: item.type as 'task' | 'todo' | 'event',
+        estPomos: estimatedPomodoros,
+        completedPomos: 0,
+        isActive: false,
+        isCompleted: false,
+      };
+
+      console.log('Created new task:', newTask);
+      setTasks(prev => [...prev, newTask]);
+      Alert.alert('Success', `Linked "${item.title}" to your Pomodoro list`);
+    } catch (error) {
+      console.error('Error linking item:', error);
+      Alert.alert('Error', 'Failed to link item. Please try again.');
     }
-  };
+  }, []);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: animationValue.value,
-    };
-  });
+  const handleCreateTask = useCallback(async (title: string, estimatedPomodoros: number, notes?: string) => {
+    try {
+      console.log('➕ Creating new task:', { title, estimatedPomodoros, notes });
+      console.log('User session:', session?.user?.id);
+      
+      // Create new task in database
+      const result = await DataService.createTodo({
+        title,
+        description: notes,
+        due_date: null,
+        priority: 'medium',
+        category: 'work',
+        tags: ['pomodoro'],
+      });
 
-  const getTodaySessions = () => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    return completedSessions.filter(session => {
-      const sessionDate = new Date(session.completedAt);
-      sessionDate.setHours(0, 0, 0, 0);
-      return sessionDate.getTime() === today.getTime();
-    });
-  };
+      console.log('DataService result:', result);
 
-  const todaySessions = getTodaySessions();
-  const todayWorkSessions = todaySessions.filter(s => s.type === 'work').length;
+      if (!result.success || !result.data) {
+        throw new Error(result.error || 'Failed to create todo');
+      }
+
+      // Since createTodo uses .single(), data should be a single Todo object
+      const todo = Array.isArray(result.data) ? result.data[0] : result.data;
+      if (!todo) {
+        throw new Error('No todo data returned');
+      }
+
+      console.log('Created todo:', todo);
+
+      // Add to Pomodoro tasks
+      const newTask: PomodoroTask = {
+        id: `todo-${todo.id}`,
+        title,
+        type: 'todo',
+        estPomos: estimatedPomodoros,
+        completedPomos: 0,
+        isActive: false,
+        isCompleted: false,
+      };
+
+      console.log('Adding to Pomodoro tasks:', newTask);
+      setTasks(prev => [...prev, newTask]);
+      Alert.alert('Success', `Created new task "${title}"`);
+    } catch (error) {
+      console.error('Error creating task:', error);
+      Alert.alert('Error', 'Failed to create task. Please try again.');
+    }
+  }, [session?.user?.id]);
+
+  const handleSettingsChange = useCallback(async (newSettings: PomodoroSettings) => {
+    if (!session?.user?.id) {
+      console.log('❌ No user session for settings change');
+      return;
+    }
+    
+    try {
+      console.log('⚙️ Saving settings for user:', session.user.id);
+      console.log('New settings:', newSettings);
+      
+      // Save settings to database
+      await PomodoroSettingsStorage.updateSettings(session.user.id, newSettings);
+      console.log('✅ Settings saved successfully');
+      
+      setSettings(newSettings);
+      Alert.alert('Success', 'Settings saved successfully!');
+    } catch (error) {
+      console.error('❌ Error saving settings:', error);
+      Alert.alert('Error', 'Failed to save settings. Please try again.');
+    }
+  }, [session?.user?.id]);
+
+  const handleSettingsPress = useCallback(() => {
+    console.log('⚙️ Settings button pressed!');
+    console.log('Current state:', { showSettingsModal, session: !!session?.user });
+    setShowSettingsModal(true);
+  }, [showSettingsModal, session?.user]);
+
+  if (authLoading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <TopBar
+          title="Pomodoro"
+          onBack={() => {}}
+          showSettings={true}
+          onSettingsPress={handleSettingsPress}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={[styles.loadingText, { color: colors.text }]}>Loading authentication...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (!session?.user) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <TopBar
+          title="Pomodoro"
+          onBack={() => {}}
+          showSettings={true}
+          onSettingsPress={handleSettingsPress}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={[styles.loadingText, { color: colors.text }]}>Please sign in to use Pomodoro</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <TopBar
+          title="Pomodoro"
+          onBack={() => {}}
+          showSettings={true}
+          onSettingsPress={handleSettingsPress}
+        />
+        <View style={styles.loadingContainer}>
+          <Text style={[styles.loadingText, { color: colors.text }]}>Loading...</Text>
+        </View>
+      </SafeAreaView>
+    );
+  }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
-      <TopBar title="Pomodoro Timer" onBack={() => handleBack()} showSettings={true} />
+    <BottomSheetModalProvider>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>
+        <TopBar
+          title="Pomodoro"
+          onBack={() => router.back()}
+          onSettingsPress={handleSettingsPress}
+        />
 
-      {/* Timer Display */}
-      <View style={styles.timerContainer}>
-        <Animated.View style={[styles.timerCircle, { borderColor: getModeColor(currentMode) }, animatedStyle]}>
-          <Text style={[styles.timerText, { color: colors.text }]}>
-            {formatTime(timeLeft)}
-          </Text>
-          <Text style={[styles.modeText, { color: colors.textSecondary }]}>
-            {currentMode === 'work' ? 'Work Time' : currentMode === 'shortBreak' ? 'Short Break' : 'Long Break'}
-          </Text>
-        </Animated.View>
-      </View>
+        <ModeTabs currentMode={mode} onModeChange={handleModeChangeCallback} />
 
-      {/* Mode Selection */}
-      <View style={styles.modeContainer}>
-        {(['work', 'shortBreak', 'longBreak'] as const).map((mode) => (
-          <TouchableOpacity
-            key={mode}
-            style={[
-              styles.modeButton,
-              { 
-                backgroundColor: currentMode === mode ? getModeColor(mode) : colors.surface,
-                borderColor: colors.border 
-              }
-            ]}
-            onPress={() => handleModeChange(mode)}
-          >
-            <Text style={[
-              styles.modeButtonText,
-              { color: currentMode === mode ? '#fff' : colors.text }
-            ]}>
-              {mode === 'work' ? 'Work' : mode === 'shortBreak' ? 'Short Break' : 'Long Break'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+        <TimerCard
+          timeRemaining={formatTime(timeLeft)}
+          mode={mode}
+          isRunning={isRunning}
+          isPaused={isPaused}
+          onStart={handleStart}
+          onPause={handlePause}
+          onResume={handleResume}
+          onSkip={handleSkip}
+          onReset={handleReset}
+          currentTask={currentTask ? {
+            title: currentTask.title,
+            completedPomodoros: currentTask.completedPomos,
+            estimatedPomodoros: currentTask.estPomos,
+          } : undefined}
+          totalCompletedToday={totalCompletedToday}
+        />
 
-      {/* Controls */}
-      <View style={styles.controlsContainer}>
-        {!isRunning ? (
-          <TouchableOpacity
-            style={[styles.controlButton, styles.startButton, { backgroundColor: colors.buttonBackground }]}
-            onPress={handleStart}
-          >
-            <Text style={[styles.controlButtonText, { color: colors.buttonText }]}>Start</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.controlRow}>
-            {isPaused ? (
-              <TouchableOpacity
-                style={[styles.controlButton, styles.resumeButton, { backgroundColor: colors.buttonBackground }]}
-                onPress={handleResume}
-              >
-                <Text style={[styles.controlButtonText, { color: colors.buttonText }]}>Resume</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity
-                style={[styles.controlButton, styles.pauseButton, { borderColor: colors.border }]}
-                onPress={handlePause}
-              >
-                <Text style={[styles.controlButtonText, { color: colors.text }]}>Pause</Text>
-              </TouchableOpacity>
-            )}
-            
-            <TouchableOpacity
-              style={[styles.controlButton, styles.stopButton, { borderColor: colors.border }]}
-              onPress={handleStop}
-            >
-              <Text style={[styles.controlButtonText, { color: colors.text }]}>Stop</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      </View>
+        <TasksPanel
+          tasks={tasks}
+          onTaskToggle={handleTaskToggle}
+          onTaskActivate={handleTaskActivate}
+          onAddOrLink={handleAddOrLink}
+          onTaskOptions={handleTaskOptions}
+        />
 
-      {/* Stats */}
-      <View style={[styles.statsContainer, { backgroundColor: colors.surface }]}>
-        <Text style={[styles.statsTitle, { color: colors.text }]}>Today's Progress</Text>
-        
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={[styles.statNumber, { color: colors.text }]}>{todayWorkSessions}</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Sessions</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={[styles.statNumber, { color: colors.text }]}>
-              {Math.floor(totalWorkTime / 60)}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Minutes</Text>
-          </View>
-          
-          <View style={styles.statItem}>
-            <Text style={[styles.statNumber, { color: colors.text }]}>
-              {Math.floor((totalWorkTime / 60) / 25)}
-            </Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pomodoros</Text>
-          </View>
-        </View>
-      </View>
-    </SafeAreaView>
+        <AddOrLinkItemSheet
+          isVisible={showAddOrLinkSheet}
+          onClose={() => setShowAddOrLinkSheet(false)}
+          onLinkItem={handleLinkItem}
+          onCreateTask={handleCreateTask}
+        />
+
+        <SettingsModal
+          isVisible={showSettingsModal}
+          onClose={() => setShowSettingsModal(false)}
+          settings={settings}
+          onSettingsChange={handleSettingsChange}
+        />
+      </SafeAreaView>
+    </BottomSheetModalProvider>
   );
 }
 
@@ -344,110 +585,13 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  timerContainer: {
+  loadingContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 40,
   },
-  timerCircle: {
-    width: 280,
-    height: 280,
-    borderRadius: 140,
-    borderWidth: 8,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  timerText: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    marginBottom: 8,
-  },
-  modeText: {
-    fontSize: 16,
-    fontWeight: '500',
-  },
-  modeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-  },
-  modeButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    minWidth: 80,
-    alignItems: 'center',
-  },
-  modeButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    textAlign: 'center',
-  },
-  controlsContainer: {
-    paddingHorizontal: 40,
-    paddingVertical: 20,
-  },
-  controlRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  controlButton: {
-    paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 8,
-    alignItems: 'center',
-    minWidth: 120,
-  },
-  startButton: {
-    width: '100%',
-  },
-  pauseButton: {
-    borderWidth: 1,
-    flex: 1,
-    marginRight: 8,
-  },
-  resumeButton: {
-    flex: 1,
-    marginRight: 8,
-  },
-  stopButton: {
-    borderWidth: 1,
-    flex: 1,
-    marginLeft: 8,
-  },
-  controlButtonText: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  statsContainer: {
-    margin: 20,
-    padding: 20,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  statsTitle: {
+  loadingText: {
     fontSize: 18,
-    fontWeight: 'bold',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statItem: {
-    alignItems: 'center',
-  },
-  statNumber: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    marginBottom: 4,
-  },
-  statLabel: {
-    fontSize: 14,
     fontWeight: '500',
   },
 }); 
