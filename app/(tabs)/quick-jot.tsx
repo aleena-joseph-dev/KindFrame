@@ -82,6 +82,8 @@ export default function QuickJotScreen() {
   const [inputMode, setInputMode] = useState<'text' | 'audio'>('text');
   const [showInfoModal, setShowInfoModal] = useState(false);
 
+  const [showSavedMessage, setShowSavedMessage] = useState(false);
+  const [savedCount, setSavedCount] = useState(0);
   
   // Session-based recording state
   const [recordingSession, setRecordingSession] = useState({
@@ -700,6 +702,10 @@ export default function QuickJotScreen() {
             };
             
             console.log('🎤 DEBUG: Structured data for results page:', structuredData);
+            console.log('🎤 DEBUG: Tasks count:', structuredData.tasks.length);
+            console.log('🎤 DEBUG: Todos count:', structuredData.todos.length);
+            console.log('🎤 DEBUG: Events count:', structuredData.events.length);
+            console.log('🎤 DEBUG: All converted items types:', convertedItems.map(item => ({ title: item.title, type: item.type })));
             
             // Navigate to results page
             console.log('🎤 DEBUG: Navigating to AI breakdown results page');
@@ -910,8 +916,9 @@ export default function QuickJotScreen() {
     
     const items: AnyItem[] = [];
     
-    // Process tasks
+    // Process tasks - respect AI's categorization
     if (breakdown.tasks && Array.isArray(breakdown.tasks)) {
+      console.log('🎤 DEBUG: Processing', breakdown.tasks.length, 'tasks from AI');
       breakdown.tasks.forEach((task: any, index: number) => {
         if (!task || typeof task !== 'object') return;
         
@@ -925,71 +932,34 @@ export default function QuickJotScreen() {
         console.log('🎤 DEBUG: Final title for task:', title);
         
         const fixedTags = fixTags(title, task.tags || []);
-        const itemType = determineItemType(title, fixedTags);
+        // Respect AI's categorization - don't override with determineItemType
+        const itemType = 'task';
+        console.log('🎤 DEBUG: Keeping AI categorization as task for:', title);
         
         const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(task, itemType);
         
-        if (itemType === 'task') {
-          const taskItem: TaskItem = {
-            type: 'task',
-            title: title.trim(),
-            notes: task.notes || task.text || task.description || '',
-            priority: task.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(taskItem);
-        } else if (itemType === 'todo') {
-          const todoItem: TodoItem = {
-            type: 'todo',
-            title: title.trim(),
-            notes: task.notes || task.text || task.description || '',
-            priority: task.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(todoItem);
-        } else if (itemType === 'event') {
-          const eventItem: EventItem = {
-            type: 'event',
-            title: title.trim(),
-            notes: task.notes || task.description || '',
-            priority: task.priority || 'normal',
-            tags: fixedTags,
-            start: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            },
-            end: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(eventItem);
-        }
+        const taskItem: TaskItem = {
+          type: 'task',
+          title: title.trim(),
+          notes: task.notes || task.text || task.description || '',
+          priority: task.priority || 'normal',
+          tags: fixedTags,
+          due: {
+            date: targetDate,
+            time: targetTime,
+            iso: isoString,
+            when_text: whenText,
+            tz: 'Asia/Kolkata'
+          }
+        };
+        items.push(taskItem);
+        console.log('🎤 DEBUG: Added task item:', taskItem);
       });
     }
     
-    // Process todos
+    // Process todos - respect AI's categorization
     if (breakdown.todos && Array.isArray(breakdown.todos)) {
+      console.log('🎤 DEBUG: Processing', breakdown.todos.length, 'todos from AI');
       breakdown.todos.forEach((todo: any, index: number) => {
         if (!todo || typeof todo !== 'object') return;
         
@@ -1003,71 +973,34 @@ export default function QuickJotScreen() {
         console.log('🎤 DEBUG: Final title for todo:', title);
         
         const fixedTags = fixTags(title, todo.tags || []);
-        const itemType = determineItemType(title, fixedTags);
+        // Respect AI's categorization - don't override with determineItemType
+        const itemType = 'todo';
+        console.log('🎤 DEBUG: Keeping AI categorization as todo for:', title);
         
         const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(todo, itemType);
         
-        if (itemType === 'task') {
-          const taskItem: TaskItem = {
-            type: 'task',
-            title: title.trim(),
-            notes: todo.notes || todo.text || todo.description || '',
-            priority: todo.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(taskItem);
-        } else if (itemType === 'todo') {
-          const todoItem: TodoItem = {
-            type: 'todo',
-            title: title.trim(),
-            notes: todo.notes || todo.text || todo.description || '',
-            priority: todo.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(todoItem);
-        } else if (itemType === 'event') {
-          const eventItem: EventItem = {
-            type: 'event',
-            title: title.trim(),
-            notes: todo.notes || todo.text || todo.description || '',
-            priority: todo.priority || 'normal',
-            tags: fixedTags,
-            start: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            },
-            end: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(eventItem);
-        }
+        const todoItem: TodoItem = {
+          type: 'todo',
+          title: title.trim(),
+          notes: todo.notes || todo.text || todo.description || '',
+          priority: todo.priority || 'normal',
+          tags: fixedTags,
+          due: {
+            date: targetDate,
+            time: targetTime,
+            iso: isoString,
+            when_text: whenText,
+            tz: 'Asia/Kolkata'
+          }
+        };
+        items.push(todoItem);
+        console.log('🎤 DEBUG: Added todo item:', todoItem);
       });
     }
     
-    // Process events
+    // Process events - respect AI's categorization
     if (breakdown.events && Array.isArray(breakdown.events)) {
+      console.log('🎤 DEBUG: Processing', breakdown.events.length, 'events from AI');
       breakdown.events.forEach((event: any, index: number) => {
         if (!event || typeof event !== 'object') return;
         
@@ -1081,70 +1014,40 @@ export default function QuickJotScreen() {
         console.log('🎤 DEBUG: Final title for event:', title);
         
         const fixedTags = fixTags(title, event.tags || []);
-        const itemType = determineItemType(title, fixedTags);
+        // Respect AI's categorization - don't override with determineItemType
+        const itemType = 'event';
+        console.log('🎤 DEBUG: Keeping AI categorization as event for:', title);
         
         const { targetDate, targetTime, whenText, isoString } = setDefaultDateTime(event, itemType);
         
-        if (itemType === 'task') {
-          const taskItem: TaskItem = {
-            type: 'task',
-            title: title.trim(),
-            notes: event.notes || event.text || event.description || '',
-            priority: event.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(taskItem);
-        } else if (itemType === 'todo') {
-          const todoItem: TodoItem = {
-            type: 'todo',
-            title: title.trim(),
-            notes: event.notes || event.text || event.description || '',
-            priority: event.priority || 'normal',
-            tags: fixedTags,
-            due: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(todoItem);
-        } else if (itemType === 'event') {
-          const eventItem: EventItem = {
-            type: 'event',
-            title: title.trim(),
-            notes: event.notes || event.text || event.description || '',
-            priority: event.priority || 'normal',
-            tags: fixedTags,
-            start: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            },
-            end: {
-              date: targetDate,
-              time: targetTime,
-              iso: isoString,
-              when_text: whenText,
-              tz: 'Asia/Kolkata'
-            }
-          };
-          items.push(eventItem);
-        }
+        const eventItem: EventItem = {
+          type: 'event',
+          title: title.trim(),
+          notes: event.notes || event.text || event.description || '',
+          priority: event.priority || 'normal',
+          tags: fixedTags,
+          start: {
+            date: targetDate,
+            time: targetTime,
+            iso: isoString,
+            when_text: whenText,
+            tz: 'Asia/Kolkata'
+          },
+          end: {
+            date: targetDate,
+            time: targetTime,
+            iso: isoString,
+            when_text: whenText,
+            tz: 'Asia/Kolkata'
+          }
+        };
+        items.push(eventItem);
+        console.log('🎤 DEBUG: Added event item:', eventItem);
       });
     }
     
     console.log('🎤 DEBUG: convertBreakdownToItems returning items:', items);
+    console.log('🎤 DEBUG: Final item types:', items.map(item => ({ title: item.title, type: item.type })));
     return items;
   };
 
@@ -1766,7 +1669,21 @@ export default function QuickJotScreen() {
           category: 'personal'
         });
       }
-      Alert.alert('Success', `Item saved as ${getTypeDisplayName(type)}!`);
+      
+      // Show success message
+      setSavedCount(1);
+      setShowSavedMessage(true);
+      
+      // Reset the Quick Jot screen to clean state
+      handleRefresh();
+      
+      // Hide success message after 3 seconds
+      setTimeout(() => {
+        setShowSavedMessage(false);
+        setSavedCount(0);
+      }, 3000);
+      
+      console.log(`✅ Individual subtask saved as ${getTypeDisplayName(type)}`);
     } catch (error) {
       console.error('Error saving individual item:', error);
       Alert.alert('Error', 'Failed to save item');
@@ -1793,8 +1710,21 @@ export default function QuickJotScreen() {
           });
         }
       }
-      Alert.alert('Success', `All items saved as ${getTypeDisplayName(type)}!`);
-      setAiBreakdownItems([]); // Clear items after saving all
+      
+      // Show success message
+      setSavedCount(aiBreakdownItems.length);
+      setShowSavedMessage(true);
+      
+      // Reset the Quick Jot screen to clean state
+      handleRefresh();
+      
+      // Hide success message after 3 seconds
+      setTimeout(() => {
+        setShowSavedMessage(false);
+        setSavedCount(0);
+      }, 3000);
+      
+      console.log(`✅ All ${aiBreakdownItems.length} items saved as ${getTypeDisplayName(type)}`);
     } catch (error) {
       console.error('Error saving all breakdown items:', error);
       Alert.alert('Error', 'Failed to save all items');
@@ -1885,8 +1815,21 @@ export default function QuickJotScreen() {
       
       console.log(`✅ Quick jot saved as ${getTypeDisplayName(type)}`);
       
-      // Navigate directly to the appropriate feature screen
-      navigateToFeatureScreen(type);
+      // Show success message
+      setSavedCount(1);
+      setShowSavedMessage(true);
+      
+      // Reset the Quick Jot screen to clean state and stay here
+      handleRefresh();
+      
+      // Hide success message after 3 seconds
+      setTimeout(() => {
+        setShowSavedMessage(false);
+        setSavedCount(0);
+      }, 3000);
+      
+      // Show success message (optional)
+      console.log('🔄 Quick Jot screen reset and ready for new input');
     } catch (error) {
       console.error('Error saving quick jot:', error);
     }
@@ -2508,6 +2451,15 @@ export default function QuickJotScreen() {
           <InfoIcon size={20} color={colors.background} />
         </TouchableOpacity>
       </View>
+
+      {/* Success Message */}
+      {showSavedMessage && (
+        <View style={[styles.successMessage, { backgroundColor: colors.primary }]}>
+          <Text style={[styles.successMessageText, { color: colors.background }]}>
+            ✅ Saved {savedCount} item{savedCount !== 1 ? 's' : ''} successfully!
+          </Text>
+        </View>
+      )}
 
       {/* Mode Toggle Buttons */}
       <View style={[styles.modeToggleContainer, { backgroundColor: colors.background }]}>
@@ -3384,5 +3336,24 @@ const styles = StyleSheet.create({
   refreshButtonText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  successMessage: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 2,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+  },
+  successMessageText: {
+    fontSize: 16,
+    fontWeight: '600',
+    textAlign: 'center',
   },
 }); 

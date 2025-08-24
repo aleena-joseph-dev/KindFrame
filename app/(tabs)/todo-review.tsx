@@ -13,7 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { AIService } from '@/services/aiService';
 import { QuickJotService } from '@/services/quickJotService';
@@ -28,7 +28,7 @@ interface TodoTask {
 
 export default function TodoReviewScreen() {
   const router = useRouter();
-  const { brainDumpText } = useLocalSearchParams<{ brainDumpText: string }>();
+  const { brainDumpText, quickJotText } = useLocalSearchParams<{ brainDumpText: string; quickJotText: string }>();
   const { mode, colors } = useThemeColors();
   const { addToStack, handleBack } = usePreviousScreen();
   
@@ -44,16 +44,31 @@ export default function TodoReviewScreen() {
   }, [addToStack]);
 
   useEffect(() => {
-    if (brainDumpText) {
-      generateTasks();
+    const textToProcess = quickJotText || brainDumpText;
+    if (textToProcess) {
+      generateTasks(textToProcess);
     }
-  }, [brainDumpText]);
+  }, [quickJotText, brainDumpText]);
 
-  const generateTasks = async () => {
+  const generateTasks = async (text: string) => {
     try {
       setIsLoading(true);
-      const tasks = await AIService.generateTodoList(brainDumpText || '');
-      setGeneratedTasks(tasks);
+      const result = await AIService.getTaskBreakdown(text || '', 'few');
+      
+      if (result.success && result.subtasks) {
+        // Convert the AI response to TodoTask format
+        const tasks: TodoTask[] = result.subtasks.map((subtask, index) => ({
+          id: `task-${index}-${Date.now()}`,
+          title: subtask,
+          completed: false,
+          priority: 'medium' as const,
+          createdAt: new Date()
+        }));
+        setGeneratedTasks(tasks);
+      } else {
+        console.error('Failed to generate tasks:', result.error);
+        Alert.alert('Error', 'Failed to generate tasks from your thoughts.');
+      }
     } catch (error) {
       console.error('Error generating tasks:', error);
       Alert.alert('Error', 'Failed to generate tasks from your thoughts.');
@@ -84,20 +99,9 @@ export default function TodoReviewScreen() {
         console.warn('🎯 QUICK JOT: Failed to track usage from todo review:', quickJotResult.error);
       }
       
-      Alert.alert(
-        'Tasks Saved!',
-        `${generatedTasks.length} tasks have been added to your todo list.`,
-        [
-          {
-            text: 'View Todo List',
-            onPress: () => router.push('/(tabs)/todo'),
-          },
-          {
-            text: 'Back to Home',
-            onPress: () => router.push('/(tabs)'),
-          },
-        ]
-      );
+      // Redirect back to Quick Jot screen
+      console.log('✅ Tasks saved successfully, redirecting to Quick Jot');
+      router.push('/(tabs)/quick-jot');
     } catch (error) {
       console.error('Error saving tasks:', error);
       Alert.alert('Error', 'Failed to save tasks to your todo list.');

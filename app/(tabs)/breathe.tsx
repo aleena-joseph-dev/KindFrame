@@ -1,5 +1,5 @@
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import React, { useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, TouchableOpacity, useWindowDimensions, View } from 'react-native';

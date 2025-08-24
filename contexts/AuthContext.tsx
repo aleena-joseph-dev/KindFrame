@@ -1,6 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { Session, User } from '@supabase/supabase-js';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface AuthContextType {
   user: User | null;
@@ -76,8 +76,34 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    console.log('🔐 AUTH CONTEXT: Starting signOut process...');
+    try {
+      console.log('🔐 AUTH CONTEXT: Current session before signOut:', session?.user?.id);
+      
+      const { error } = await supabase.auth.signOut();
+      if (error) {
+        console.error('❌ AUTH CONTEXT: Supabase signOut error:', error);
+        throw error;
+      }
+      console.log('✅ AUTH CONTEXT: Supabase signOut completed successfully');
+      
+      // Clear local state immediately
+      console.log('🔐 AUTH CONTEXT: Clearing local state...');
+      setSession(null);
+      setUser(null);
+      console.log('✅ AUTH CONTEXT: Local state cleared');
+      
+      // Force a re-render by updating loading state
+      setLoading(false);
+      console.log('✅ AUTH CONTEXT: Loading state updated');
+      
+      // Verify state was cleared
+      console.log('🔐 AUTH CONTEXT: State after clearing - session:', session, 'user:', user);
+      
+    } catch (error) {
+      console.error('❌ AUTH CONTEXT: Error in signOut:', error);
+      throw error;
+    }
   };
 
   const resetPassword = async (email: string) => {

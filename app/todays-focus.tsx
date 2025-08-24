@@ -1,13 +1,13 @@
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { GestureHandlerRootView, PanGestureHandler } from 'react-native-gesture-handler';
 import Animated, {
-    runOnJS,
-    useAnimatedGestureHandler,
-    useAnimatedStyle,
-    useSharedValue,
-    withSpring
+  runOnJS,
+  useAnimatedGestureHandler,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring
 } from 'react-native-reanimated';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -16,117 +16,314 @@ import { ClockIcon } from '@/components/ui/ClockIcon';
 import { KanbanIcon } from '@/components/ui/KanbanIcon';
 import { NotesIcon } from '@/components/ui/NotesIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
-import { TopBar } from '@/components/ui/TopBar';
-import { SensoryColors } from '@/constants/Colors';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
+import TopBar from '@/components/ui/TopBar';
+import { useAuth } from '@/contexts/AuthContext';
+import { useThemeColors } from '@/hooks/useThemeColors';
+import { DataService } from '@/services/dataService';
 
 interface TodaysTask {
   id: string;
   title: string;
-  type: 'note' | 'todo' | 'kanban' | 'goal' | 'pomodoro';
+  type: 'note' | 'todo' | 'kanban' | 'goal' | 'pomodoro' | 'event';
   tag?: string;
   tagColor?: string;
   dueTime?: string;
   createdAt: string;
   isActive?: boolean;
   description?: string;
-  priority: 'low' | 'medium' | 'high';
+  priority: 'low' | 'medium' | 'high' | 'urgent';
   estimatedDuration?: number; // in minutes
   isCompleted?: boolean;
+  isOverdue?: boolean;
+  isUpcoming?: boolean;
 }
 
 export default function TodaysFocusScreen() {
   const router = useRouter();
-  const { mode } = useSensoryMode();
-  const colors = SensoryColors[mode];
+  const { colors } = useThemeColors();
+  const { session } = useAuth();
 
-  // Sample tasks data - in real implementation, this would come from state management or database
-  const [tasks, setTasks] = useState<TodaysTask[]>([
-    {
-      id: '1',
-      title: 'Morning meditation',
-      type: 'pomodoro',
-      tag: 'Wellness',
-      tagColor: '#ef4444',
-      dueTime: '7:00 AM',
-      createdAt: new Date().toISOString(),
-      isActive: true,
-      description: '15-minute mindfulness session',
-      priority: 'high',
-      estimatedDuration: 15,
-      isCompleted: false,
-    },
-    {
-      id: '2',
-      title: 'Review project goals',
-      type: 'goal',
-      tag: 'Work',
-      tagColor: '#8b5cf6',
-      dueTime: '8:00 AM',
-      createdAt: new Date().toISOString(),
-      description: 'Check quarterly objectives and milestones',
-      priority: 'high',
-      estimatedDuration: 30,
-      isCompleted: false,
-    },
-    {
-      id: '3',
-      title: 'Write daily journal',
-      type: 'note',
-      tag: 'Personal',
-      tagColor: '#3b82f6',
-      dueTime: '9:00 AM',
-      createdAt: new Date().toISOString(),
-      description: 'Reflect on yesterday and plan today',
-      priority: 'medium',
-      estimatedDuration: 20,
-      isCompleted: false,
-    },
-    {
-      id: '4',
-      title: 'Team sync meeting',
-      type: 'kanban',
-      tag: 'Meeting',
-      tagColor: '#f59e0b',
-      dueTime: '10:00 AM',
-      createdAt: new Date().toISOString(),
-      description: 'Weekly team standup and updates',
-      priority: 'high',
-      estimatedDuration: 45,
-      isCompleted: false,
-    },
-    {
-      id: '5',
-      title: 'Complete task assignments',
-      type: 'todo',
-      tag: 'Work',
-      tagColor: '#10b981',
-      dueTime: '2:00 PM',
-      createdAt: new Date().toISOString(),
-      description: 'Finish pending items from sprint backlog',
-      priority: 'medium',
-      estimatedDuration: 90,
-      isCompleted: false,
-    },
-  ]);
-
+  const [tasks, setTasks] = useState<TodaysTask[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [draggedTask, setDraggedTask] = useState<string | null>(null);
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
-  const handleBack = () => {
-    router.back();
+  useEffect(() => {
+    loadTodaysData();
+  }, []);
+
+  const loadTodaysData = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      if (!session?.user) {
+        setError('User not authenticated');
+        return;
+      }
+
+      // Get today's date range
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+
+      // Fetch data from various services
+      const [todosResult, goalsResult, notesResult, memoriesResult, eventsResult] = await Promise.all([
+        DataService.getTodos(false), // Get incomplete todos
+        DataService.getGoals('active'), // Get active goals
+        DataService.getNotes(20, 0), // Get recent notes
+        DataService.getCoreMemories(10, 0), // Get recent memories
+        DataService.getCalendarEvents(50, 0) // Get calendar events
+      ]);
+
+      let todaysTasks: TodaysTask[] = [];
+
+      // Process todos - prioritize those due today
+      if (todosResult.success && todosResult.data) {
+        const todos = Array.isArray(todosResult.data) ? todosResult.data : [todosResult.data];
+        todos.forEach(todo => {
+          const isDueToday = todo.due_date && new Date(todo.due_date) >= startOfDay && new Date(todo.due_date) <= endOfDay;
+          const isOverdue = todo.due_date && new Date(todo.due_date) < startOfDay;
+          
+          if (isDueToday || isOverdue) {
+            todaysTasks.push({
+              id: todo.id,
+              title: todo.title,
+              type: 'todo',
+              tag: todo.category || 'Task',
+              tagColor: getTagColor(todo.category || 'Task'),
+              dueTime: todo.due_date ? formatTime(todo.due_date) : undefined,
+              createdAt: todo.created_at,
+              description: todo.description,
+              priority: todo.priority || 'medium',
+              estimatedDuration: 30, // Default duration
+              isCompleted: todo.is_completed || false,
+              isOverdue: isOverdue,
+            });
+          }
+        });
+      }
+
+      // Process goals - prioritize those with deadlines today
+      if (goalsResult.success && goalsResult.data) {
+        const goals = Array.isArray(goalsResult.data) ? goalsResult.data : [goalsResult.data];
+        goals.forEach(goal => {
+          const isDueToday = goal.deadline && new Date(goal.deadline) >= startOfDay && new Date(goal.deadline) <= endOfDay;
+          const isOverdue = goal.deadline && new Date(goal.deadline) < startOfDay;
+          
+          if (isDueToday || isOverdue) {
+            todaysTasks.push({
+              id: goal.id,
+              title: goal.title,
+              type: 'goal',
+              tag: goal.category || 'Goal',
+              tagColor: getTagColor(goal.category || 'Goal'),
+              dueTime: goal.deadline ? formatTime(goal.deadline) : undefined,
+              createdAt: goal.created_at,
+              description: goal.description,
+              priority: goal.priority || 'medium',
+              estimatedDuration: 60, // Default duration for goals
+              isCompleted: goal.status === 'completed',
+              isOverdue: isOverdue,
+            });
+          }
+        });
+      }
+
+      // Process calendar events for today
+      if (eventsResult.success && eventsResult.data) {
+        const events = Array.isArray(eventsResult.data) ? eventsResult.data : [eventsResult.data];
+        events.forEach(event => {
+          const eventStart = new Date(event.start_time);
+          const isToday = eventStart >= startOfDay && eventStart <= endOfDay;
+          
+          if (isToday) {
+            todaysTasks.push({
+              id: event.id,
+              title: event.title,
+              type: 'event',
+              tag: 'Event',
+              tagColor: '#8b5cf6',
+              dueTime: formatTime(event.start_time),
+              createdAt: event.created_at,
+              description: event.description,
+              priority: 'medium',
+              estimatedDuration: event.end_time && event.start_time ? 
+                Math.round((new Date(event.end_time).getTime() - new Date(event.start_time).getTime()) / (1000 * 60)) : 
+                60,
+              isCompleted: false,
+              isOverdue: false,
+            });
+          }
+        });
+      }
+
+      // If no today-specific items, show some upcoming items (next 2-3 days)
+      if (todaysTasks.length === 0) {
+        const upcomingStart = new Date(today);
+        upcomingStart.setDate(today.getDate() + 1);
+        const upcomingEnd = new Date(today);
+        upcomingEnd.setDate(today.getDate() + 3);
+
+        // Add upcoming todos
+        if (todosResult.success && todosResult.data) {
+          const todos = Array.isArray(todosResult.data) ? todosResult.data : [todosResult.data];
+          todos.forEach(todo => {
+            if (todo.due_date) {
+              const dueDate = new Date(todo.due_date);
+              if (dueDate >= upcomingStart && dueDate <= upcomingEnd) {
+                todaysTasks.push({
+                  id: todo.id,
+                  title: todo.title,
+                  type: 'todo',
+                  tag: todo.category || 'Task',
+                  tagColor: getTagColor(todo.category || 'Task'),
+                  dueTime: formatTime(todo.due_date),
+                  createdAt: todo.created_at,
+                  description: todo.description,
+                  priority: todo.priority || 'medium',
+                  estimatedDuration: 30,
+                  isCompleted: todo.is_completed || false,
+                  isOverdue: false,
+                  isUpcoming: true,
+                });
+              }
+            }
+          });
+        }
+
+        // Add upcoming goals
+        if (goalsResult.success && goalsResult.data) {
+          const goals = Array.isArray(goalsResult.data) ? goalsResult.data : [goalsResult.data];
+          goals.forEach(goal => {
+            if (goal.deadline) {
+              const deadline = new Date(goal.deadline);
+              if (deadline >= upcomingStart && deadline <= upcomingEnd) {
+                todaysTasks.push({
+                  id: goal.id,
+                  title: goal.title,
+                  type: 'goal',
+                  tag: goal.category || 'Goal',
+                  tagColor: getTagColor(goal.category || 'Goal'),
+                  dueTime: formatTime(goal.deadline),
+                  createdAt: goal.created_at,
+                  description: goal.description,
+                  priority: goal.priority || 'medium',
+                  estimatedDuration: 60,
+                  isCompleted: goal.status === 'completed',
+                  isOverdue: false,
+                  isUpcoming: true,
+                });
+              }
+            }
+          });
+        }
+
+        // Limit upcoming items to 2-3
+        todaysTasks = todaysTasks.slice(0, 3);
+      }
+
+      // Sort by priority, overdue status, and due time
+      todaysTasks.sort((a, b) => {
+        // First: overdue items
+        if (a.isOverdue && !b.isOverdue) return -1;
+        if (!a.isOverdue && b.isOverdue) return 1;
+        
+        // Second: priority
+        const priorityOrder = { high: 3, medium: 2, low: 1 };
+        const aPriority = priorityOrder[a.priority] || 1;
+        const bPriority = priorityOrder[b.priority] || 1;
+        
+        if (aPriority !== bPriority) {
+          return bPriority - aPriority;
+        }
+        
+        // Third: due time (earlier first)
+        if (a.dueTime && b.dueTime) {
+          return new Date(a.dueTime).getTime() - new Date(b.dueTime).getTime();
+        }
+        
+        // Fourth: creation time (newer first)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      setTasks(todaysTasks);
+    } catch (err) {
+      console.error('Error loading today\'s data:', err);
+      setError('Failed to load data. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const getTagColor = (tag: string): string => {
+    const colorMap: { [key: string]: string } = {
+      'Work': '#8b5cf6',
+      'Personal': '#3b82f6',
+      'Health': '#ef4444',
+      'Wellness': '#f59e0b',
+      'Goal': '#10b981',
+      'Task': '#6b7280',
+      'Note': '#8b5cf6',
+      'Memory': '#ec4899',
+      'Meeting': '#f59e0b',
+      'Project': '#8b5cf6',
+    };
+    return colorMap[tag] || '#6b7280';
+  };
+
+  const formatTime = (dateString: string): string => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: true });
+    } catch {
+      return '';
+    }
   };
 
   const handleTaskPress = (task: TodaysTask) => {
-    const routes = {
-      note: '/(tabs)/notes',
-      todo: '/(tabs)/todo',
-      kanban: '/(tabs)/kanban',
-      goal: '/(tabs)/goals',
-      pomodoro: '/(tabs)/pomodoro'
-    };
+    // Navigate to appropriate screen based on task type
+    switch (task.type) {
+      case 'todo':
+        // Navigate to todo screen and potentially highlight the specific todo
+        router.push('/(tabs)/todo');
+        break;
+      case 'goal':
+        // Navigate to goals screen and potentially highlight the specific goal
+        router.push('/(tabs)/goals');
+        break;
+      case 'note':
+        // Navigate to notes screen and potentially highlight the specific note
+        router.push('/(tabs)/notes');
+        break;
+      case 'kanban':
+        // Navigate to kanban screen and potentially highlight the specific card
+        router.push('/(tabs)/kanban');
+        break;
+      case 'pomodoro':
+        // Navigate to pomodoro screen
+        router.push('/(tabs)/pomodoro');
+        break;
+      case 'event':
+        // Navigate to calendar screen and potentially highlight the specific event
+        router.push('/(tabs)/calendar');
+        break;
+      default:
+        router.push('/(tabs)/todo');
+    }
+  };
 
-    router.push(routes[task.type] as any);
+  const handleRefresh = () => {
+    loadTodaysData();
+  };
+
+  const handleAddNewTask = () => {
+    router.push('/(tabs)/quick-jot');
+  };
+
+  const handleBack = () => {
+    router.back();
   };
 
   const handleCompleteTask = (taskId: string) => {
@@ -154,11 +351,6 @@ export default function TodaysFocusScreen() {
         },
       ]
     );
-  };
-
-  const handleAddNewTask = () => {
-    // This would open the task creation modal
-    Alert.alert('Add Task', 'Task creation will open the same modal as home screen!');
   };
 
   const getTaskIcon = (type: TodaysTask['type']) => {
@@ -418,16 +610,60 @@ export default function TodaysFocusScreen() {
       {/* Tasks List */}
       <ScrollView style={styles.tasksList} showsVerticalScrollIndicator={false}>
         <View style={styles.tasksContainer}>
-          <View style={styles.sectionHeader}>
-            <Text style={[styles.sectionTitle, { color: colors.text }]}>Tasks for Today</Text>
-            <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
-              Drag to reorder • Tap to open
-            </Text>
-          </View>
-
-          {tasks.map((task, index) => (
-            <DraggableTaskItem key={task.id} task={task} index={index} />
-          ))}
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={[styles.loadingText, { color: colors.textSecondary }]}>Loading today's focus...</Text>
+            </View>
+          ) : error ? (
+            <View style={styles.errorContainer}>
+              <Text style={[styles.errorText, { color: colors.text }]}>{error}</Text>
+            </View>
+          ) : tasks.length === 0 ? (
+            <View style={styles.emptyContainer}>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>
+                No tasks for today. Add some to get started!
+              </Text>
+              <TouchableOpacity 
+                style={[styles.addTaskButton, { backgroundColor: colors.primary, borderColor: colors.primary }]}
+                onPress={handleAddNewTask}
+              >
+                <Text style={[styles.addTaskText, { color: colors.buttonText }]}>+ Add Your First Task</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <>
+              {/* Show today's tasks */}
+              {tasks.filter(task => !task.isUpcoming).length > 0 && (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Text style={[styles.sectionTitle, { color: colors.text }]}>Today's Tasks</Text>
+                    <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
+                      Tap to open • Drag to reorder
+                    </Text>
+                  </View>
+                  {tasks.filter(task => !task.isUpcoming).map((task, index) => (
+                    <DraggableTaskItem key={task.id} task={task} index={index} />
+                  ))}
+                </>
+              )}
+              
+              {/* Show upcoming tasks if any */}
+              {tasks.filter(task => task.isUpcoming).length > 0 && (
+                <>
+                  <View style={styles.sectionHeader}>
+                    <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>Upcoming</Text>
+                    <Text style={[styles.sectionSubtitle, { color: colors.textSecondary }]}>
+                      Next few days
+                    </Text>
+                  </View>
+                  {tasks.filter(task => task.isUpcoming).map((task, index) => (
+                    <DraggableTaskItem key={task.id} task={task} index={index} />
+                  ))}
+                </>
+              )}
+            </>
+          )}
 
           {/* Add New Task Button */}
           <TouchableOpacity 
@@ -472,17 +708,6 @@ const styles = StyleSheet.create({
   },
   tasksContainer: {
     padding: 20,
-  },
-  sectionHeader: {
-    marginBottom: 16,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  sectionSubtitle: {
-    fontSize: 14,
   },
   taskItem: {
     flexDirection: 'row',
@@ -585,5 +810,48 @@ const styles = StyleSheet.create({
   addTaskText: {
     fontSize: 16,
     fontWeight: '600',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  errorText: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  sectionHeader: {
+    marginBottom: 16,
+    marginTop: 24,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    opacity: 0.7,
   },
 });

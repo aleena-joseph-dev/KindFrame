@@ -3,7 +3,7 @@ import * as ImagePicker from 'expo-image-picker';
 import React, { useEffect, useState } from 'react';
 import { Alert, Dimensions, Image, Modal, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { SensoryColors } from '@/constants/Colors';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestData } from '@/contexts/GuestDataContext';

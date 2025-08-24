@@ -1,6 +1,6 @@
 import { PopupBg } from '@/components/ui/PopupBg';
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
 import { LinearGradient } from 'expo-linear-gradient';

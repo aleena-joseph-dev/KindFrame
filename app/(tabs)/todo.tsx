@@ -5,6 +5,7 @@ import {
     Alert,
     FlatList,
     Platform,
+    RefreshControl,
     StyleSheet,
     Text,
     TextInput,
@@ -15,7 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
 import { useGuestData } from '@/contexts/GuestDataContext';
 import { useThemeColors } from '@/hooks/useThemeColors';

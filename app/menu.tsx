@@ -1,4 +1,3 @@
-import { AuthService } from '@/services/authService';
 import { useRouter } from 'expo-router';
 import React, { useEffect } from 'react';
 import { Alert, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
@@ -14,17 +13,13 @@ import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
 import ProfileIcon from '@/components/ui/ProfileIcon';
 import { SmileIcon } from '@/components/ui/SmileIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
-import { TopBar } from '@/components/ui/TopBar';
-import { SensoryColors } from '@/constants/Colors';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
-
-
+import TopBar from '@/components/ui/TopBar';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 export default function MenuScreen() {
   const router = useRouter();
-  const { mode } = useSensoryMode();
+  const { colors } = useThemeColors();
   const { navigationStack, addToStack, removeFromStack, getCurrentScreen, getPreviousScreen, handleBack } = usePreviousScreen();
-  const colors = SensoryColors[mode];
 
   // Add this screen to navigation stack when component mounts
   useEffect(() => {
@@ -42,7 +37,6 @@ export default function MenuScreen() {
   }, []);
 
   const handleFeaturePress = (feature: string) => {
-    // Handle navigation to different features
     if (feature === 'Notes') {
       router.push('/(tabs)/notes');
     } else if (feature === 'Kanban') {
@@ -58,19 +52,9 @@ export default function MenuScreen() {
     } else if (feature === 'Zone Out') {
       router.push('/(tabs)/zone-out');
     } else if (feature === 'Profile') {
-      handleLogout();
+      router.push('/profile');
     } else {
       Alert.alert('Feature Coming Soon', `${feature} will be available in the next update!`);
-    }
-  };
-
-  const handleLogout = async () => {
-    try {
-      await AuthService.signOut();
-      router.replace('/(auth)/signin');
-    } catch (error) {
-      console.error('Logout error:', error);
-      Alert.alert('Logout Error', 'Failed to sign out. Please try again.');
     }
   };
 

@@ -18,7 +18,7 @@ import Animated, {
     withTiming
 } from 'react-native-reanimated';
 import { usePreviousScreen } from '../../components/ui/PreviousScreenContext';
-import { TopBar } from '../../components/ui/TopBar';
+import TopBar from '../../components/ui/TopBar';
 import { SensoryColors } from '../../constants/Colors';
 import { useSensoryMode } from '../../contexts/SensoryModeContext';
 

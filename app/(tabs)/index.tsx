@@ -1,7 +1,7 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Dimensions, Image, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, Animated, Dimensions, Image, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import AnimatedJotBoxIcon from '@/components/ui/AnimatedJotBoxIcon';
@@ -31,6 +31,7 @@ import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useTutorial } from '@/contexts/TutorialContext';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
+import { DataService } from '@/services/dataService';
 import { detectVisitType, getWelcomeMessage, shouldShowWelcomeMessage, updateVisitData } from '@/utils/visitTypeDetector';
 
 const { width, height } = Dimensions.get('window');
@@ -51,6 +52,19 @@ interface TodaysTask {
   dueTime?: string;
   createdAt: string;
   isActive?: boolean;
+}
+
+interface SearchResult {
+  id: string;
+  title: string;
+  content?: string;
+  type: 'note' | 'todo' | 'goal' | 'event' | 'memory' | 'kanban';
+  category?: string;
+  tagColor?: string;
+  dueTime?: string;
+  createdAt: string;
+  confidence: number;
+  route: string;
 }
 
 export default function HomeScreen() {
@@ -124,7 +138,11 @@ export default function HomeScreen() {
   const [showWelcomeMessage, setShowWelcomeMessage] = useState(false);
   const [userData, setUserData] = useState<any>(null);
 
+  // Search state
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [showSearchResults, setShowSearchResults] = useState(false);
 
   // Add these hooks here, before any conditional returns
   const [showFullSchedule, setShowFullSchedule] = useState(false);
@@ -655,7 +673,7 @@ export default function HomeScreen() {
     console.log('✅ THEME CHANGED SUCCESSFULLY:', theme);
   };
 
-  const handleSearch = (query: string) => {
+  const handleSearch = async (query: string) => {
     setSearchQuery(query);
     
     // Track search interaction for analytics
@@ -663,6 +681,8 @@ export default function HomeScreen() {
     
     if (!query.trim()) {
       console.log('🔍 SEARCH: Query cleared');
+      setSearchResults([]);
+      setShowSearchResults(false);
       return;
     }
     
@@ -674,30 +694,213 @@ export default function HomeScreen() {
       searchQueries: [...prev.searchQueries, query.trim()].slice(-10) // Keep last 10 searches
     }));
     
-    // Search through available features and navigate to relevant screens
-    const searchResults = searchFeatures(query.toLowerCase());
+    setIsSearching(true);
     
-    if (searchResults.length > 0) {
-      console.log('🎯 SEARCH RESULTS:', searchResults);
+    try {
+      // Search through user content first
+      const userContentResults = await searchUserContent(query.trim());
       
-      // If there's an exact or high-confidence match, navigate directly
-      const bestMatch = searchResults[0];
-      if (bestMatch.confidence >= 0.8) {
-        console.log('✅ SEARCH: High confidence match found, navigating to:', bestMatch.route);
-        trackInteraction('search_navigation', { feature: bestMatch.name, confidence: bestMatch.confidence });
-        router.push(bestMatch.route as any);
-      } else {
-        console.log('📋 SEARCH: Multiple matches found, user can select from results');
-        // Could show a search results modal here in future implementation
+      // Search through app features
+      const featureResults = searchFeatures(query.toLowerCase());
+      
+      // Combine and sort results
+      const allResults = [...userContentResults, ...featureResults];
+      allResults.sort((a, b) => b.confidence - a.confidence);
+      
+      setSearchResults(allResults);
+      setShowSearchResults(true);
+      
+      console.log('✅ SEARCH: Found', allResults.length, 'results');
+      trackInteraction('search_results', { 
+        query: query.trim(), 
+        resultCount: allResults.length,
+        hasUserContent: userContentResults.length > 0
+      });
+      
+    } catch (error) {
+      console.error('❌ SEARCH ERROR:', error);
+      // Fallback to feature search only
+      const featureResults = searchFeatures(query.toLowerCase());
+      setSearchResults(featureResults);
+      setShowSearchResults(true);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
+  // Search through user content (notes, todos, goals, etc.)
+  const searchUserContent = async (query: string): Promise<SearchResult[]> => {
+    if (!session?.user) {
+      console.log('🔒 No authenticated user, skipping content search');
+      return [];
+    }
+
+    const results: SearchResult[] = [];
+    const searchTerm = query.toLowerCase();
+    
+    try {
+      // Search through todos
+      const todosResult = await DataService.getTodos();
+      if (todosResult.success && todosResult.data) {
+        const todos = Array.isArray(todosResult.data) ? todosResult.data : [todosResult.data];
+        todos.forEach(todo => {
+          const titleMatch = todo.title.toLowerCase().includes(searchTerm);
+          const descriptionMatch = todo.description?.toLowerCase().includes(searchTerm);
+          const categoryMatch = todo.category?.toLowerCase().includes(searchTerm);
+          
+          if (titleMatch || descriptionMatch || categoryMatch) {
+            let confidence = 0.5;
+            if (titleMatch) confidence += 0.3;
+            if (descriptionMatch) confidence += 0.2;
+            if (categoryMatch) confidence += 0.1;
+            
+            results.push({
+              id: todo.id,
+              title: todo.title,
+              content: todo.description,
+              type: 'todo',
+              category: todo.category,
+              tagColor: getTagColor(todo.category || 'Task'),
+              dueTime: todo.due_date ? formatTime(todo.due_date) : undefined,
+              createdAt: todo.created_at,
+              confidence: Math.min(confidence, 1.0),
+              route: '/(tabs)/todo'
+            });
+          }
+        });
       }
-    } else {
-      console.log('❌ SEARCH: No results found for query:', query);
-      trackInteraction('search_no_results', { query });
+
+      // Search through notes
+      const notesResult = await DataService.getNotes(100, 0);
+      if (notesResult.success && notesResult.data) {
+        const notes = Array.isArray(notesResult.data) ? notesResult.data : [notesResult.data];
+        notes.forEach(note => {
+          const titleMatch = note.title.toLowerCase().includes(searchTerm);
+          const contentMatch = note.content?.toLowerCase().includes(searchTerm);
+          const categoryMatch = note.category?.toLowerCase().includes(searchTerm);
+          
+          if (titleMatch || contentMatch || categoryMatch) {
+            let confidence = 0.5;
+            if (titleMatch) confidence += 0.3;
+            if (contentMatch) confidence += 0.2;
+            if (categoryMatch) confidence += 0.1;
+            
+            results.push({
+              id: note.id,
+              title: note.title,
+              content: note.content,
+              type: 'note',
+              category: note.category,
+              tagColor: getTagColor(note.category || 'Note'),
+              createdAt: note.created_at,
+              confidence: Math.min(confidence, 1.0),
+              route: '/(tabs)/notes'
+            });
+          }
+        });
+      }
+
+      // Search through goals
+      const goalsResult = await DataService.getGoals();
+      if (goalsResult.success && goalsResult.data) {
+        const goals = Array.isArray(goalsResult.data) ? goalsResult.data : [goalsResult.data];
+        goals.forEach(goal => {
+          const titleMatch = goal.title.toLowerCase().includes(searchTerm);
+          const descriptionMatch = goal.description?.toLowerCase().includes(searchTerm);
+          const categoryMatch = goal.category?.toLowerCase().includes(searchTerm);
+          
+          if (titleMatch || descriptionMatch || categoryMatch) {
+            let confidence = 0.5;
+            if (titleMatch) confidence += 0.3;
+            if (descriptionMatch) confidence += 0.2;
+            if (categoryMatch) confidence += 0.1;
+            
+            results.push({
+              id: goal.id,
+              title: goal.title,
+              content: goal.description,
+              type: 'goal',
+              category: goal.category,
+              tagColor: getTagColor(goal.category || 'Goal'),
+              dueTime: goal.deadline ? formatTime(goal.deadline) : undefined,
+              createdAt: goal.created_at,
+              confidence: Math.min(confidence, 1.0),
+              route: '/(tabs)/goals'
+            });
+          }
+        });
+      }
+
+      // Search through calendar events
+      const eventsResult = await DataService.getCalendarEvents(100, 0);
+      if (eventsResult.success && eventsResult.data) {
+        const events = Array.isArray(eventsResult.data) ? eventsResult.data : [eventsResult.data];
+        events.forEach(event => {
+          const titleMatch = event.title.toLowerCase().includes(searchTerm);
+          const descriptionMatch = event.description?.toLowerCase().includes(searchTerm);
+          const locationMatch = event.location?.toLowerCase().includes(searchTerm);
+          
+          if (titleMatch || descriptionMatch || locationMatch) {
+            let confidence = 0.5;
+            if (titleMatch) confidence += 0.3;
+            if (descriptionMatch) confidence += 0.2;
+            if (locationMatch) confidence += 0.1;
+            
+            results.push({
+              id: event.id,
+              title: event.title,
+              content: event.description,
+              type: 'event',
+              category: 'Event',
+              tagColor: '#8b5cf6',
+              dueTime: formatTime(event.start_time),
+              createdAt: event.created_at,
+              confidence: Math.min(confidence, 1.0),
+              route: '/(tabs)/calendar'
+            });
+          }
+        });
+      }
+
+      // Search through core memories
+      const memoriesResult = await DataService.getCoreMemories(100, 0);
+      if (memoriesResult.success && memoriesResult.data) {
+        const memories = Array.isArray(memoriesResult.data) ? memoriesResult.data : [memoriesResult.data];
+        memories.forEach(memory => {
+          const titleMatch = memory.title.toLowerCase().includes(searchTerm);
+          const descriptionMatch = memory.description?.toLowerCase().includes(searchTerm);
+          
+          if (titleMatch || descriptionMatch) {
+            let confidence = 0.5;
+            if (titleMatch) confidence += 0.3;
+            if (descriptionMatch) confidence += 0.2;
+            
+            results.push({
+              id: memory.id,
+              title: memory.title,
+              content: memory.description,
+              type: 'memory',
+              category: 'Memory',
+              tagColor: '#8b5cf6',
+              createdAt: memory.created_at,
+              confidence: Math.min(confidence, 1.0),
+              route: '/(tabs)/core-memory'
+            });
+          }
+        });
+      }
+
+      console.log('📚 USER CONTENT SEARCH: Found', results.length, 'results');
+      return results;
+      
+    } catch (error) {
+      console.error('❌ Error searching user content:', error);
+      return [];
     }
   };
 
   // Search feature implementation
-  const searchFeatures = (query: string) => {
+  const searchFeatures = (query: string): SearchResult[] => {
     const searchableFeatures = [
       // Main features
       { name: 'todo', keywords: ['todo', 'task', 'tasks', 'checklist', 'list', 'to-do', 'to do'], route: '/(tabs)/todo', confidence: 1.0 },
@@ -722,7 +925,7 @@ export default function HomeScreen() {
       { name: 'profile', keywords: ['profile', 'account', 'user'], route: '/menu', confidence: 0.7 },
     ];
 
-    const results = [];
+    const results: SearchResult[] = [];
     
     for (const feature of searchableFeatures) {
       for (const keyword of feature.keywords) {
@@ -747,23 +950,46 @@ export default function HomeScreen() {
             confidence *= 0.6;
           }
           
-          results.push({
-            name: feature.name,
-            route: feature.route,
-            confidence,
-            matchedKeyword: keyword
-          });
-          break; // Only add once per feature
+          // Add to results if not already present
+          const existingIndex = results.findIndex(r => r.route === feature.route);
+          if (existingIndex === -1) {
+            results.push({
+              id: `feature-${feature.name}`,
+              title: feature.name.charAt(0).toUpperCase() + feature.name.slice(1),
+              type: 'note', // Use note type for features
+              category: 'Feature',
+              tagColor: '#3b82f6',
+              createdAt: new Date().toISOString(),
+              confidence: confidence,
+              route: feature.route
+            });
+          } else if (confidence > results[existingIndex].confidence) {
+            // Update with higher confidence
+            results[existingIndex].confidence = confidence;
+          }
         }
       }
     }
     
-    // Sort by confidence (highest first) and remove duplicates
-    const uniqueResults = results.filter((result, index, self) => 
-      index === self.findIndex(r => r.name === result.name)
-    );
+    return results;
+  };
+
+  // Handle search result selection
+  const handleSearchResultSelect = (result: SearchResult) => {
+    console.log('🎯 SEARCH RESULT SELECTED:', result);
+    trackInteraction('search_result_selected', { 
+      type: result.type, 
+      route: result.route,
+      confidence: result.confidence 
+    });
     
-    return uniqueResults.sort((a, b) => b.confidence - a.confidence);
+    // Navigate to the selected result
+    router.push(result.route as any);
+    
+    // Clear search and hide results
+    setSearchQuery('');
+    setSearchResults([]);
+    setShowSearchResults(false);
   };
 
   // Today's Focus task management functions
@@ -963,6 +1189,220 @@ export default function HomeScreen() {
 
   const gridRows = createGridRows();
 
+  // Today's Focus task management functions
+  const loadTodaysTasksFromDatabase = async () => {
+    try {
+      if (!session?.user) {
+        console.log('🔒 No authenticated user, skipping data load');
+        return;
+      }
+
+      console.log('📅 Loading today\'s tasks from database...');
+      
+      // Get today's date range
+      const today = new Date();
+      const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const endOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate(), 23, 59, 59);
+
+      // Fetch data from various services
+      const [todosResult, goalsResult, eventsResult] = await Promise.all([
+        DataService.getTodos(false), // Get incomplete todos
+        DataService.getGoals('active'), // Get active goals
+        DataService.getCalendarEvents(50, 0) // Get calendar events
+      ]);
+
+      let todaysTasksFromDB: TodaysTask[] = [];
+
+      // Process todos - prioritize those due today
+      if (todosResult.success && todosResult.data) {
+        const todos = Array.isArray(todosResult.data) ? todosResult.data : [todosResult.data];
+        todos.forEach(todo => {
+          const isDueToday = todo.due_date && new Date(todo.due_date) >= startOfDay && new Date(todo.due_date) <= endOfDay;
+          const isOverdue = todo.due_date && new Date(todo.due_date) < startOfDay;
+          
+          if (isDueToday || isOverdue) {
+            todaysTasksFromDB.push({
+              id: todo.id,
+              title: todo.title,
+              type: 'todo',
+              tag: todo.category || 'Task',
+              tagColor: getTagColor(todo.category || 'Task'),
+              dueTime: todo.due_date ? formatTime(todo.due_date) : undefined,
+              createdAt: todo.created_at,
+              isActive: true,
+            });
+          }
+        });
+      }
+
+      // Process goals - prioritize those with deadlines today
+      if (goalsResult.success && goalsResult.data) {
+        const goals = Array.isArray(goalsResult.data) ? goalsResult.data : [goalsResult.data];
+        goals.forEach(goal => {
+          const isDueToday = goal.deadline && new Date(goal.deadline) >= startOfDay && new Date(goal.deadline) <= endOfDay;
+          const isOverdue = goal.deadline && new Date(goal.deadline) < startOfDay;
+          
+          if (isDueToday || isOverdue) {
+            todaysTasksFromDB.push({
+              id: goal.id,
+              title: goal.title,
+              type: 'goal',
+              tag: goal.category || 'Goal',
+              tagColor: getTagColor(goal.category || 'Goal'),
+              dueTime: goal.deadline ? formatTime(goal.deadline) : undefined,
+              createdAt: goal.created_at,
+              isActive: true,
+            });
+          }
+        });
+      }
+
+      // Process calendar events for today
+      if (eventsResult.success && eventsResult.data) {
+        const events = Array.isArray(eventsResult.data) ? eventsResult.data : [eventsResult.data];
+        events.forEach(event => {
+          const eventStart = new Date(event.start_time);
+          const isToday = eventStart >= startOfDay && eventStart <= endOfDay;
+          
+          if (isToday) {
+            todaysTasksFromDB.push({
+              id: event.id,
+              title: event.title,
+              type: 'note', // Use note type for events in home widget
+              tag: 'Event',
+              tagColor: '#8b5cf6',
+              dueTime: formatTime(event.start_time),
+              createdAt: event.created_at,
+              isActive: true,
+            });
+          }
+        });
+      }
+
+      // If no today-specific items, show some upcoming items (next 2-3 days)
+      if (todaysTasksFromDB.length === 0) {
+        const upcomingStart = new Date(today);
+        upcomingStart.setDate(today.getDate() + 1);
+        const upcomingEnd = new Date(today);
+        upcomingEnd.setDate(today.getDate() + 3);
+
+        // Add upcoming todos
+        if (todosResult.success && todosResult.data) {
+          const todos = Array.isArray(todosResult.data) ? todosResult.data : [todosResult.data];
+          todos.forEach(todo => {
+            if (todo.due_date) {
+              const dueDate = new Date(todo.due_date);
+              if (dueDate >= upcomingStart && dueDate <= upcomingEnd) {
+                todaysTasksFromDB.push({
+                  id: todo.id,
+                  title: todo.title,
+                  type: 'todo',
+                  tag: todo.category || 'Task',
+                  tagColor: getTagColor(todo.category || 'Task'),
+                  dueTime: formatTime(todo.due_date),
+                  createdAt: todo.created_at,
+                  isActive: true,
+                });
+              }
+            }
+          });
+        }
+
+        // Add upcoming goals
+        if (goalsResult.success && goalsResult.data) {
+          const goals = Array.isArray(goalsResult.data) ? goalsResult.data : [goalsResult.data];
+          goals.forEach(goal => {
+            if (goal.deadline) {
+              const deadline = new Date(goal.deadline);
+              if (deadline >= upcomingStart && deadline <= upcomingEnd) {
+                todaysTasksFromDB.push({
+                  id: goal.id,
+                  title: goal.title,
+                  type: 'goal',
+                  tag: goal.category || 'Goal',
+                  tagColor: getTagColor(goal.category || 'Goal'),
+                  dueTime: formatTime(goal.deadline),
+                  createdAt: goal.created_at,
+                  isActive: true,
+                });
+              }
+            }
+          });
+        }
+
+        // Limit upcoming items to 2-3
+        todaysTasksFromDB = todaysTasksFromDB.slice(0, 3);
+      }
+
+      // Sort by priority, overdue status, and due time
+      todaysTasksFromDB.sort((a, b) => {
+        // First: overdue items (check if dueTime is in the past)
+        const aIsOverdue = a.dueTime && new Date(a.dueTime) < startOfDay;
+        const bIsOverdue = b.dueTime && new Date(b.dueTime) < startOfDay;
+        
+        if (aIsOverdue && !bIsOverdue) return -1;
+        if (!aIsOverdue && bIsOverdue) return 1;
+        
+        // Second: due time (earlier first)
+        if (a.dueTime && b.dueTime) {
+          return new Date(a.dueTime).getTime() - new Date(b.dueTime).getTime();
+        }
+        
+        // Third: creation time (newer first)
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+
+      // Update the state with real data
+      setTodaysTasks(todaysTasksFromDB);
+      console.log('✅ Loaded', todaysTasksFromDB.length, 'tasks from database');
+      
+    } catch (error) {
+      console.error('❌ Error loading today\'s tasks:', error);
+      // Keep existing tasks if loading fails
+    }
+  };
+
+  // Helper function to get tag color
+  const getTagColor = (category: string) => {
+    const colorMap: { [key: string]: string } = {
+      'work': '#ef4444',
+      'personal': '#10b981',
+      'health': '#f59e0b',
+      'learning': '#3b82f6',
+      'finance': '#8b5cf6',
+      'Task': '#10b981',
+      'Goal': '#8b5cf6',
+      'Event': '#8b5cf6',
+    };
+    return colorMap[category.toLowerCase()] || colorMap[category] || '#6b7280';
+  };
+
+  // Helper function to format time
+  const formatTime = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return undefined;
+    }
+  };
+
+  // Load today's tasks when component mounts
+  useEffect(() => {
+    if (session?.user) {
+      loadTodaysTasksFromDatabase();
+    }
+  }, [session?.user]);
+
+  // Reload today's tasks when user returns to this screen
+  useFocusEffect(
+    React.useCallback(() => {
+      if (session?.user) {
+        loadTodaysTasksFromDatabase();
+      }
+    }, [session?.user])
+  );
+
   // --- RENDER ---
   if (loading) {
     return (
@@ -977,6 +1417,27 @@ export default function HomeScreen() {
       </SafeAreaView>
     );
   }
+
+  // Get icon for search result type
+  const getSearchResultIcon = (type: SearchResult['type']) => {
+    const iconProps = { size: 16, color: '#6b7280' };
+    switch (type) {
+      case 'note':
+        return <NotesIcon {...iconProps} />;
+      case 'todo':
+        return <CheckIcon {...iconProps} />;
+      case 'goal':
+        return <TargetIcon {...iconProps} />;
+      case 'event':
+        return <CalendarIcon {...iconProps} />;
+      case 'memory':
+        return <SmileIcon {...iconProps} />;
+      case 'kanban':
+        return <KanbanIcon {...iconProps} />;
+      default:
+        return <NotesIcon {...iconProps} />;
+    }
+  };
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]}>  
@@ -1110,8 +1571,89 @@ export default function HomeScreen() {
             value={searchQuery}
             onChangeText={handleSearch}
           />
+          {isSearching && (
+            <View style={styles.searchLoading}>
+              <Text style={[styles.searchLoadingText, { color: colors.textSecondary }]}>...</Text>
+            </View>
+          )}
         </View>
       </View>
+
+      {/* Search Results */}
+      {showSearchResults && (
+        <View style={[styles.searchResultsContainer, { backgroundColor: colors.surface }]}>
+          <View style={styles.searchResultsHeader}>
+            <Text style={[styles.searchResultsTitle, { color: colors.text }]}>
+              {searchResults.length > 0 ? `Search Results (${searchResults.length})` : 'No Results Found'}
+            </Text>
+            <TouchableOpacity 
+              onPress={() => {
+                setSearchQuery('');
+                setSearchResults([]);
+                setShowSearchResults(false);
+              }}
+            >
+              <Text style={[styles.clearSearchText, { color: colors.textSecondary }]}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          
+          {searchResults.length > 0 ? (
+            <ScrollView style={styles.searchResultsList} showsVerticalScrollIndicator={false}>
+              {searchResults.map((result, index) => (
+                <TouchableOpacity
+                  key={`${result.id}-${index}`}
+                  style={[styles.searchResultItem, { borderBottomColor: colors.border }]}
+                  onPress={() => handleSearchResultSelect(result)}
+                >
+                  <View style={styles.searchResultHeader}>
+                    <View style={styles.searchResultType}>
+                      {getSearchResultIcon(result.type)}
+                      {result.category && (
+                        <View style={[styles.searchResultTag, { backgroundColor: result.tagColor || '#e5e7eb' }]}>
+                          <Text style={styles.searchResultTagText}>{result.category}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.searchResultConfidence, { color: colors.textSecondary }]}>
+                      {Math.round(result.confidence * 100)}%
+                    </Text>
+                  </View>
+                  
+                  <Text style={[styles.searchResultTitle, { color: colors.text }]} numberOfLines={1}>
+                    {result.title}
+                  </Text>
+                  
+                  {result.content && (
+                    <Text style={[styles.searchResultContent, { color: colors.textSecondary }]} numberOfLines={2}>
+                      {result.content}
+                    </Text>
+                  )}
+                  
+                  <View style={styles.searchResultFooter}>
+                    {result.dueTime && (
+                      <Text style={[styles.searchResultTime, { color: colors.textSecondary }]}>
+                        ⏰ {result.dueTime}
+                      </Text>
+                    )}
+                    <Text style={[styles.searchResultRoute, { color: colors.textSecondary }]}>
+                      {result.route.replace('/(tabs)/', '').replace('/', '')}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          ) : (
+            <View style={styles.noResultsContainer}>
+              <Text style={[styles.noResultsText, { color: colors.textSecondary }]}>
+                No results found for "{searchQuery}"
+              </Text>
+              <Text style={[styles.noResultsSubtext, { color: colors.textSecondary }]}>
+                Try different keywords or check your spelling
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
 
       {/* Guest Mode Indicator */}
       {isGuestMode && !session && (
@@ -1144,7 +1686,23 @@ export default function HomeScreen() {
         <View style={styles.focusHeader}>
           <Text style={[styles.focusTitle, { color: colors.text }]}>Today's Focus</Text>
           <View style={styles.expandIndicator}>
-            <Text style={[styles.expandText, { color: colors.textSecondary }]}>View All →</Text>
+            <TouchableOpacity 
+              onPress={() => {
+                loadTodaysTasksFromDatabase();
+                trackInteraction('todays_focus_refreshed');
+              }}
+              style={styles.refreshButton}
+            >
+              <Text style={[styles.refreshText, { color: colors.textSecondary }]}>↻</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              onPress={() => {
+                trackInteraction('todays_focus_detailed_view_opened');
+                router.push('/todays-focus');
+              }}
+            >
+              <Text style={[styles.expandText, { color: colors.textSecondary }]}>View All →</Text>
+            </TouchableOpacity>
           </View>
         </View>
         
@@ -1152,16 +1710,26 @@ export default function HomeScreen() {
           /* Empty State */
           <View style={styles.emptyState}>
             <Text style={[styles.emptyStateText, { color: colors.textSecondary }]}>
-              No tasks today. Tap to create your first task.
+              No tasks for today. Tap refresh to load your data.
             </Text>
-            <TouchableOpacity 
-              style={[styles.createTaskButton, { backgroundColor: colors.primary }]}
-              onPress={openTaskCreationMenu}
-            >
-              <Text style={[styles.createTaskButtonText, { color: colors.buttonText }]}>
-                Create Task +
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.emptyStateActions}>
+              <TouchableOpacity 
+                style={[styles.refreshDataButton, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                onPress={loadTodaysTasksFromDatabase}
+              >
+                <Text style={[styles.refreshDataButtonText, { color: colors.textSecondary }]}>
+                  ↻ Refresh
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.createTaskButton, { backgroundColor: colors.primary }]}
+                onPress={openTaskCreationMenu}
+              >
+                <Text style={[styles.createTaskButtonText, { color: colors.buttonText }]}>
+                  Create Task +
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : (
           /* Task Cards (max 2) */
@@ -1920,5 +2488,133 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginTop: 8,
+  },
+  refreshButton: {
+    marginRight: 8,
+  },
+  refreshText: {
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  refreshDataButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  refreshDataButtonText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  emptyStateActions: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  searchLoading: {
+    marginTop: 10,
+    alignItems: 'center',
+  },
+  searchLoadingText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  searchResultsContainer: {
+    marginHorizontal: 20,
+    marginBottom: 20,
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  searchResultsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  searchResultsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  clearSearchText: {
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  searchResultsList: {
+    maxHeight: 200,
+  },
+  searchResultItem: {
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.1)',
+  },
+  searchResultHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  searchResultType: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchResultTag: {
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 4,
+  },
+  searchResultTagText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  searchResultConfidence: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  searchResultTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    marginBottom: 2,
+  },
+  searchResultContent: {
+    fontSize: 12,
+    fontWeight: '400',
+  },
+  searchResultFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  searchResultTime: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  searchResultRoute: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  noResultsContainer: {
+    alignItems: 'center',
+    padding: 24,
+  },
+  noResultsText: {
+    fontSize: 16,
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  noResultsSubtext: {
+    fontSize: 14,
+    textAlign: 'center',
+    lineHeight: 20,
   },
 });

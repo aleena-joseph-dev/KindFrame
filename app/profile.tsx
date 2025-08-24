@@ -1,88 +1,101 @@
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
-import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CheckIcon } from '@/components/ui/CheckIcon';
 import { StarIcon } from '@/components/ui/StarIcon';
 import { TargetIcon } from '@/components/ui/TargetIcon';
-import { TopBar } from '@/components/ui/TopBar';
-import { SensoryColors } from '@/constants/Colors';
+import TopBar from '@/components/ui/TopBar';
 import { useAuth } from '@/contexts/AuthContext';
-import { useGuestMode } from '@/contexts/GuestModeContext';
 import { useSensoryMode } from '@/contexts/SensoryModeContext';
-import { AuthService } from '@/services/authService';
+import { useThemeColors } from '@/hooks/useThemeColors';
 
 interface UserStats {
-  tasksCompleted: number;
-  streakDays: number;
+  totalTodos: number;
+  completedTodos: number;
   totalNotes: number;
-  goalsAchieved: number;
-  minutesMeditated: number;
-  pomodoroSessions: number;
+  totalGoals: number;
+  completedGoals: number;
+  totalMemories: number;
+  totalKanbanCards: number;
+  totalCalendarEvents: number;
+  totalPomodoroSessions: number;
+  totalBreathingSessions: number;
+  totalMeditationSessions: number;
+  totalMusicSessions: number;
+  totalMoodEntries: number;
+  totalQuickJots: number;
 }
 
 export default function ProfileScreen() {
   const router = useRouter();
   const { mode } = useSensoryMode();
-  const { isGuestMode } = useGuestMode();
-  const { session } = useAuth();
-  const colors = SensoryColors[mode];
-
+  const { session, signOut } = useAuth();
+  const { colors } = useThemeColors();
+  
   const [userProfile, setUserProfile] = useState<any>(null);
-  const [userStats, setUserStats] = useState<UserStats>({
-    tasksCompleted: 0,
-    streakDays: 0,
-    totalNotes: 0,
-    goalsAchieved: 0,
-    minutesMeditated: 0,
-    pomodoroSessions: 0,
-  });
   const [loading, setLoading] = useState(true);
+  const [userStats, setUserStats] = useState<UserStats>({
+    totalTodos: 0,
+    completedTodos: 0,
+    totalNotes: 0,
+    totalGoals: 0,
+    completedGoals: 0,
+    totalMemories: 0,
+    totalKanbanCards: 0,
+    totalCalendarEvents: 0,
+    totalPomodoroSessions: 0,
+    totalBreathingSessions: 0,
+    totalMeditationSessions: 0,
+    totalMusicSessions: 0,
+    totalMoodEntries: 0,
+    totalQuickJots: 0,
+  });
 
   useEffect(() => {
     loadUserProfile();
   }, []);
 
+  // Monitor session changes for debugging
+  useEffect(() => {
+    console.log('🔐 PROFILE: Session changed:', {
+      hasSession: !!session,
+      userId: session?.user?.id,
+      userEmail: session?.user?.email
+    });
+  }, [session]);
+
   const loadUserProfile = async () => {
     try {
       setLoading(true);
       
-      if (isGuestMode) {
-        // Mock data for guest mode
-        setUserProfile({
-          full_name: 'Guest User',
-          email: 'guest@kindframe.app',
-          avatar_url: null,
-          sensory_mode: mode,
-        });
-        setUserStats({
-          tasksCompleted: 12,
-          streakDays: 3,
-          totalNotes: 8,
-          goalsAchieved: 2,
-          minutesMeditated: 45,
-          pomodoroSessions: 6,
-        });
-      } else {
-        const currentUser = await AuthService.getCurrentUser();
-        if (currentUser) {
-          setUserProfile(currentUser);
-          // Load actual stats from database
-          // TODO: Implement real stats loading from database
-          setUserStats({
-            tasksCompleted: 0,
-            streakDays: 0,
-            totalNotes: 0,
-            goalsAchieved: 0,
-            minutesMeditated: 0,
-            pomodoroSessions: 0,
-          });
-        }
-      }
+      // For now, use mock data until we implement proper data loading
+      setUserProfile({
+        full_name: session?.user?.email?.split('@')[0] || 'User',
+        email: session?.user?.email || 'No email',
+        avatar_url: null,
+        sensory_mode: mode,
+      });
+      
+      setUserStats({
+        totalTodos: 12,
+        completedTodos: 8,
+        totalNotes: 15,
+        totalGoals: 5,
+        completedGoals: 2,
+        totalMemories: 3,
+        totalKanbanCards: 20,
+        totalCalendarEvents: 8,
+        totalPomodoroSessions: 25,
+        totalBreathingSessions: 18,
+        totalMeditationSessions: 12,
+        totalMusicSessions: 10,
+        totalMoodEntries: 30,
+        totalQuickJots: 45,
+      });
     } catch (error) {
       console.error('Error loading user profile:', error);
-      Alert.alert('Error', 'Failed to load profile. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -93,26 +106,67 @@ export default function ProfileScreen() {
   };
 
   const handleLogout = async () => {
-    Alert.alert(
-      'Logout',
-      'Are you sure you want to logout?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Logout',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await AuthService.signOut();
-              router.replace('/(auth)/signin');
-            } catch (error) {
-              console.error('Error during logout:', error);
-              Alert.alert('Error', 'Failed to logout. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    console.log('🔐 PROFILE: Logout requested');
+    console.log('🔐 PROFILE: Current session:', session?.user?.id);
+    
+    // Cross-platform confirmation
+    let confirmed = false;
+    
+    if (Platform.OS === 'web') {
+      // Web: use window.confirm
+      confirmed = window.confirm('Are you sure you want to logout?');
+    } else {
+      // Native: use Alert.alert with Promise
+      confirmed = await new Promise((resolve) => {
+        Alert.alert(
+          'Logout',
+          'Are you sure you want to logout?',
+          [
+            { text: 'Cancel', style: 'cancel', onPress: () => resolve(false) },
+            { text: 'Logout', style: 'destructive', onPress: () => resolve(true) }
+          ]
+        );
+      });
+    }
+    
+    if (!confirmed) {
+      console.log('🔐 PROFILE: Logout cancelled by user');
+      return;
+    }
+    
+    try {
+      console.log('🔐 PROFILE: Starting logout process...');
+      
+      // Call signOut from AuthContext
+      await signOut();
+      console.log('🔐 PROFILE: SignOut completed successfully');
+      
+      // Navigate to signin screen with fallback
+      console.log('🔐 PROFILE: Navigating to signin screen...');
+      try {
+        router.replace('/(auth)/signin');
+        console.log('🔐 PROFILE: router.replace completed');
+      } catch (navError) {
+        console.error('❌ PROFILE: Navigation error, trying fallback:', navError);
+        // Fallback navigation
+        try {
+          router.push('/(auth)/signin');
+          console.log('🔐 PROFILE: Fallback navigation completed');
+        } catch (fallbackError) {
+          console.error('❌ PROFILE: Fallback navigation also failed:', fallbackError);
+          if (typeof window !== 'undefined') {
+            window.location.href = '/(auth)/signin';
+            console.log('🔐 PROFILE: window.location fallback completed');
+          } else {
+            alert('Logout completed but navigation failed. Please manually navigate to signin.');
+          }
+        }
+      }
+      
+    } catch (error) {
+      console.error('❌ PROFILE: Error during logout:', error);
+      alert('Failed to logout. Please try again.');
+    }
   };
 
   const handleBack = () => {
@@ -208,19 +262,19 @@ export default function ProfileScreen() {
             <StatCard 
               icon={<CheckIcon size={20} color="#10b981" />}
               label="Tasks Done"
-              value={userStats.tasksCompleted}
+              value={userStats.completedTodos}
               color="#10b981"
             />
             <StatCard 
               icon={<StarIcon size={20} color="#f59e0b" />}
               label="Streak Days"
-              value={userStats.streakDays}
+              value={userStats.completedGoals}
               color="#f59e0b"
             />
             <StatCard 
               icon={<TargetIcon size={20} color="#8b5cf6" />}
               label="Goals Met"
-              value={userStats.goalsAchieved}
+              value={userStats.completedGoals}
               color="#8b5cf6"
             />
             <StatCard 
@@ -244,13 +298,12 @@ export default function ProfileScreen() {
             <Text style={[styles.actionButtonIcon, { color: colors.textSecondary }]}>→</Text>
           </TouchableOpacity>
           
-          {!isGuestMode && (
+          {session?.user && (
             <TouchableOpacity 
               style={[styles.actionButton, styles.logoutButton, { borderColor: '#ef4444' }]}
               onPress={handleLogout}
             >
               <Text style={[styles.actionButtonText, { color: '#ef4444' }]}>Logout</Text>
-              <Text style={[styles.actionButtonIcon, { color: '#ef4444' }]}>→</Text>
             </TouchableOpacity>
           )}
         </View>

@@ -19,7 +19,7 @@ import Animated, {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { usePreviousScreen } from '@/components/ui/PreviousScreenContext';
-import { TopBar } from '@/components/ui/TopBar';
+import TopBar from '@/components/ui/TopBar';
 import { useThemeColors } from '@/hooks/useThemeColors';
 import { useViewport } from '@/hooks/useViewport';
 

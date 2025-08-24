@@ -1,10 +1,9 @@
-import { SensoryColors } from '@/constants/Colors';
-import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import { useRouter } from 'expo-router';
 import React from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
-import { AuthService } from '@/services/authService';
+import { SensoryColors } from '@/constants/Colors';
+import { useSensoryMode } from '@/contexts/SensoryModeContext';
 import BackIcon from './BackIcon';
 import InfoIcon from './InfoIcon';
 import SettingsIcon from './SettingsIcon';
@@ -13,46 +12,24 @@ interface TopBarProps {
   title: string;
   onBack?: () => void;
   onInfo?: () => void;
-  showSettings?: boolean;
   syncButton?: {
     label: string;
     onPress: () => void;
-    isConnected?: boolean;
+    isConnected: boolean;
   };
+  showSettings?: boolean;
 }
 
-export function TopBar({ title, onBack, onInfo, showSettings = false, syncButton }: TopBarProps) {
+export default function TopBar({ 
+  title, 
+  onBack, 
+  onInfo, 
+  syncButton,
+  showSettings = false 
+}: TopBarProps) {
   const { mode } = useSensoryMode();
   const colors = SensoryColors[mode];
   const router = useRouter();
-
-  const handleLogout = async () => {
-    console.log('Logout button clicked');
-    
-    // For web, use a simpler approach without Alert
-    if (Platform.OS === 'web') {
-      console.log('Web platform detected, proceeding with logout...');
-      try {
-        await AuthService.signOut();
-        console.log('SignOut completed, redirecting to signin...');
-        router.replace('/(auth)/signin');
-      } catch (error) {
-        console.error('Logout error:', error);
-        // For web, we'll just redirect anyway
-        router.replace('/(auth)/signin');
-      }
-    } else {
-      // For mobile, logout directly without confirmation
-      console.log('User clicked logout, starting signOut process...');
-      try {
-        await AuthService.signOut();
-        console.log('SignOut completed, redirecting to signin...');
-        router.replace('/(auth)/signin');
-      } catch (error) {
-        console.error('Logout error:', error);
-      }
-    }
-  };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.topBarBackground }]}> 
@@ -113,33 +90,24 @@ export function TopBar({ title, onBack, onInfo, showSettings = false, syncButton
           </TouchableOpacity>
         )}
       </View>
-      {/* Right side - Settings/Logout button */}
-      <TouchableOpacity
-        style={[
-          styles.sideButton,
-          showSettings && { backgroundColor: 'rgba(255, 0, 0, 0.1)' } // Add red background for debugging
-        ]}
-        onPress={() => {
-          console.log('Settings button clicked, showSettings:', showSettings);
-          if (showSettings) {
-            handleLogout();
-          }
-        }}
-        accessibilityLabel={showSettings ? "Settings" : ""}
-        accessibilityRole={showSettings ? "button" : undefined}
-        accessibilityHint={showSettings ? "Open settings and logout options" : undefined}
-        activeOpacity={0.7}
-        accessible={showSettings}
-        accessibilityLiveRegion="polite"
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-      >
-        {showSettings && (
-          <>
-            <SettingsIcon size={24} color={colors.text} />
-            <Text style={{ fontSize: 8, color: 'red' }}>LOGOUT</Text>
-          </>
-        )}
-      </TouchableOpacity>
+      {/* Right side - Settings button (no logout functionality) */}
+      {showSettings && (
+        <TouchableOpacity
+          style={styles.sideButton}
+          onPress={() => {
+            router.push('/settings');
+          }}
+          accessibilityLabel="Settings"
+          accessibilityRole="button"
+          accessibilityHint="Open settings"
+          activeOpacity={0.7}
+          accessible={true}
+          accessibilityLiveRegion="polite"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <SettingsIcon size={24} color={colors.text} />
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

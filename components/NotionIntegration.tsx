@@ -1,15 +1,14 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { ThemedText } from '@/components/ThemedText';
+import { Button } from '@/components/ui/Button';
+import TopBar from '@/components/ui/TopBar';
 import { SensoryColors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { AuthService } from '@/services/authService';
-import { NotionService, NotionPage, NotionDatabase } from '@/services/notionService';
-import { ThemedText } from '@/components/ThemedText';
-import { ThemedView } from '@/components/ThemedView';
-import { Button } from '@/components/ui/Button';
-import { TopBar } from '@/components/ui/TopBar';
+import { NotionDatabase, NotionPage, NotionService } from '@/services/notionService';
 
 export default function NotionIntegration() {
   const colorScheme = useColorScheme();
