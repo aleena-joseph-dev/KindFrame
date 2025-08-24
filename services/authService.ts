@@ -2,6 +2,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Database } from '../lib/supabase';
 import { supabase } from '../lib/supabase';
 import { extractNameFromEmail } from '../utils/nameExtractor';
+import config from '@/lib/config';
 
 type UserProfile = Database['public']['Tables']['user_profiles']['Row'];
 
@@ -365,9 +366,9 @@ export class AuthService {
     try {
       console.log('Attempting custom Notion OAuth sign in...');
       
-      // Notion OAuth configuration
-      const NOTION_CLIENT_ID = process.env.EXPO_PUBLIC_NOTION_CLIENT_ID;
-      const NOTION_REDIRECT_URI = 'http://localhost:8081/auth-callback'; // Updated back to port 8081
+              // Notion OAuth configuration
+        const NOTION_CLIENT_ID = process.env.EXPO_PUBLIC_NOTION_CLIENT_ID;
+        const NOTION_REDIRECT_URI = config.oauth.notion.redirectUri;
       
       if (!NOTION_CLIENT_ID) {
         console.error('Notion Client ID not configured');
@@ -451,7 +452,7 @@ export class AuthService {
       const { data: tokenData, error: tokenError } = await supabase.functions.invoke('notion-oauth', {
         body: {
           code,
-          redirect_uri: 'http://localhost:8081/auth-callback', // Updated back to port 8081
+          redirect_uri: config.oauth.notion.redirectUri,
         },
       });
 
@@ -1243,8 +1244,8 @@ export class AuthService {
       
       console.log('Initiating Google Calendar OAuth...');
       
-      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'your-google-client-id';
-      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      const clientId = config.oauth.google.clientId;
+      const redirectUri = config.oauth.google.redirectUri;
       
       // Use a single valid scope for Google Calendar
       const scopeString = 'https://www.googleapis.com/auth/calendar.readonly';
@@ -1369,8 +1370,8 @@ export class AuthService {
     console.log('🔗 PROOF - initiateGoogleKeepOAuth() function started');
     try {
      
-      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || 'your-google-client-id';
-      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      const clientId = config.oauth.google.clientId;
+      const redirectUri = config.oauth.google.redirectUri;
       
       // Define scopes as separate values for proper encoding
       // For Google Keep integration, we need multiple scopes:
@@ -1588,9 +1589,9 @@ export class AuthService {
     try {
       console.log('Exchanging Google authorization code for tokens...');
       
-      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-      const clientSecret = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
-      const redirectUri = process.env.EXPO_PUBLIC_GOOGLE_REDIRECT_URI || 'http://localhost:8082/auth-callback';
+      const clientId = config.oauth.google.clientId;
+      const clientSecret = config.oauth.google.clientSecret;
+      const redirectUri = config.oauth.google.redirectUri;
       
       if (!clientId || !clientSecret) {
         return {
@@ -1682,8 +1683,8 @@ export class AuthService {
         };
       }
       
-      const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID;
-      const clientSecret = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_SECRET;
+      const clientId = config.oauth.google.clientId;
+      const clientSecret = config.oauth.google.clientSecret;
       
       if (!clientId || !clientSecret) {
         return {

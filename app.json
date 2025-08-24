@@ -66,6 +66,17 @@
       "eas": {
         "projectId": "your-project-id"
       }
+    },
+    "hooks": {
+      "postPublish": [
+        {
+          "file": "sentry-expo/upload-sourcemaps",
+          "config": {
+            "organization": "your-org",
+            "project": "kindframe"
+          }
+        }
+      ]
     }
   }
 }

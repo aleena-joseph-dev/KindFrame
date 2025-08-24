@@ -1,3 +1,5 @@
+import config from '@/lib/config';
+
 interface TaskBreakdownRequest {
   userInput: string;
   detailLevel?: 'few' | 'many';
@@ -37,8 +39,8 @@ interface CursorAIResponse {
 
 export class AIService {
   // Use the AI proxy server instead of direct Cursor AI connection
-  private static AI_PROXY_ENDPOINT = 'http://localhost:3001/api/ai/task-breakdown';
-  private static AI_PROXY_TEST_ENDPOINT = 'http://localhost:3001/api/ai/test-connection';
+  private static AI_PROXY_ENDPOINT = config.ai.proxyEndpoint + '/task-breakdown';
+  private static AI_PROXY_TEST_ENDPOINT = config.ai.proxyEndpoint + '/test-connection';
   private static API_KEY = process.env.EXPO_PUBLIC_CURSOR_AI_KEY || '';
   private static DEFAULT_MODEL = 'gpt-4'; // or your preferred model
   private static DEFAULT_MAX_TOKENS = 500;

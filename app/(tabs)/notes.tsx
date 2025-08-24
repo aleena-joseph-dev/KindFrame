@@ -5,6 +5,7 @@ import { supabase } from '@/lib/supabase';
 import { AuthService } from '@/services/authService';
 import { DataService, Note as DatabaseNote } from '@/services/dataService';
 import { GuestDataService } from '@/services/guestDataService';
+import config from '@/lib/config';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
@@ -955,7 +956,7 @@ export default function NotesScreen() {
                 
                 // Construct Google OAuth URL directly
                 const clientId = process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID || '57453908124-1tr7r9f6uam0sojtkmt6k4qmdc8n7iv6.apps.googleusercontent.com';
-                const redirectUri = 'http://localhost:8082/auth-callback'; // Hardcoded for now
+                const redirectUri = config.oauth.google.redirectUri;
                 const scope = 'https://www.googleapis.com/auth/drive.readonly';
                 const state = 'keep';
                 

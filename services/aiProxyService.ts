@@ -1,3 +1,5 @@
+import config from '@/lib/config';
+
 interface TaskBreakdownRequest {
   userInput: string;
   detailLevel?: 'few' | 'many';
@@ -15,7 +17,7 @@ interface TaskBreakdownResponse {
 }
 
 export class AIProxyService {
-  private static PROXY_ENDPOINT = 'http://localhost:3001/api/ai'; // Adjust port as needed
+  private static PROXY_ENDPOINT = config.ai.proxyEndpoint; // Adjust port as needed
 
   /**
    * Get task breakdown via backend proxy
